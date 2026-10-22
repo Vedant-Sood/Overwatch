@@ -69,7 +69,10 @@ def test_massive_parser():
     assert df["close"].iloc[0] == 185.64
     with pytest.raises(ProviderError):
         MassiveProvider.parse(json.dumps({"status": "ERROR", "error": "API Key was not provided"}))
-    assert not MassiveProvider(None, api_key=None).supports("AAPL")
+    mp = MassiveProvider(None, api_key=None)
+    assert mp.supports("AAPL")  # a proxy-injected network secret may authenticate requests without a visible key
+    mp.disabled_reason = "no credentials"
+    assert not mp.supports("AAPL") and not MassiveProvider(None, api_key="k").supports("XA:NDX")
 
 
 def test_fmp_parser():
@@ -102,3 +105,41 @@ def test_proxy_costs_assume_liquidity(cfg):
     assert e.liquidity_ok and e.half_spread_bps == cfg.get("costs.half_spread_bps")["proxy_equity"] and "proxy" in e.note
     e2 = CostModel(cfg).estimate("ABC", "equity", 1e6, float("nan"), 0.012)
     assert not e2.liquidity_ok  # ordinary securities with unknown volume stay unverified
+
+
+def test_point_in_time_universe_uses_only_past_liquidity():
+    from bigboss.data.providers.massive_market import point_in_time_universe
+
+    dates = pd.bdate_range("2025-01-01", periods=120)
+    rows = []
+    for i, d in enumerate(dates):
+        for s, dv in (("BIG", 1e9), ("MID", 1e8), ("RISER", 1e5 if i < 100 else 1e10)):
+            rows.append({"symbol": s, "date": d, "close": 50.0, "volume": dv / 50})
+    bars = pd.DataFrame(rows)
+    m = point_in_time_universe(bars, top_n=2, lookback=20, min_history=10)
+    full = m.set_index(["date", "symbol"])
+    # Membership at a date must not change when future bars are removed (no look-ahead).
+    t = dates[90]
+    trunc = point_in_time_universe(bars[bars["date"] <= t], top_n=2, lookback=20, min_history=10).set_index(["date", "symbol"])
+    assert set(full.xs(t, level="date").index) == set(trunc.xs(t, level="date").index) == {"BIG", "MID"}
+    # RISER only enters after its liquidity shows up in the trailing window (shifted by one day).
+    assert "RISER" not in set(full.xs(dates[100], level="date").index)
+    assert "RISER" in set(full.xs(dates[115], level="date").index)
+    # Penny stocks are excluded.
+    cheap = bars.assign(close=np.where(bars["symbol"] == "MID", 2.0, bars["close"]))
+    assert "MID" not in set(point_in_time_universe(cheap, top_n=3, lookback=20, min_history=10)["symbol"])
+
+
+def test_massive_parsers():
+    from bigboss.data.providers.massive_market import MassiveMarket
+    from bigboss.data.providers.news import MassiveNews
+
+    g = MassiveMarket.parse_grouped(json.dumps({"status": "OK", "resultsCount": 1, "results": [
+        {"T": "AAPL", "v": 5e7, "vw": 201.1, "o": 200, "c": 202, "h": 203, "l": 199, "t": 1748894400000, "n": 9e5}]}), pd.Timestamp("2025-06-02"))
+    assert g.loc[0, "symbol"] == "AAPL" and g.loc[0, "close"] == 202 and g.loc[0, "date"] == pd.Timestamp("2025-06-02")
+    with pytest.raises(ProviderError):
+        MassiveMarket.parse_grouped(json.dumps({"status": "NOT_AUTHORIZED", "message": "plan"}), pd.Timestamp("2016-01-04"))
+    n = MassiveNews.parse(json.dumps({"status": "OK", "results": [{
+        "title": "Apple beats estimates", "published_utc": "2026-10-21T14:30:00Z", "article_url": "https://www.reuters.com/a",
+        "description": "", "insights": [{"ticker": "AAPL", "sentiment": "negative", "sentiment_reasoning": "x"}]}]}), "AAPL")
+    assert n[0]["provider_sentiment"] == -1.0 and n[0]["source_domain"] == "reuters.com"

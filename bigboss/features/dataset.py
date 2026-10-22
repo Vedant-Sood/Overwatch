@@ -65,6 +65,16 @@ def build_dataset(store: Store, cfg: Config, symbols: list[str] | None = None, m
     labels = forward_labels(prices, horizons, cfg.get("forecast.execution_delay_days", 1), bmap)
     frame = frame.join(labels, how="left")
     frame = frame[frame.index.get_level_values("symbol").isin(tradeable)]
+    # Point-in-time universe: a managed symbol is a candidate on date t only if it was a member at t.
+    try:
+        mem = store.membership()
+    except Exception:  # older stores without the table
+        mem = pd.DataFrame()
+    if not mem.empty:
+        managed = set(mem["symbol"])
+        idx = pd.MultiIndex.from_frame(mem[["date", "symbol"]])
+        sym = frame.index.get_level_values("symbol")
+        frame = frame[~sym.isin(managed) | frame.index.isin(idx)]
 
     label_like = [c for c in frame.columns if c.startswith(("fwd_", "label_end_"))]
     feature_cols = [c for c in frame.columns if c not in label_like and frame[c].notna().mean() > 0.05]

@@ -104,3 +104,20 @@ def test_live_trading_is_disabled_and_tokens_are_order_bound(cfg):
     g2.engage_kill_switch("test")
     with pytest.raises(LiveTradingDisabled):
         g2.place(o, g2.issue_approval_token(o, "APPROVE BUY 10 AAPL"))
+
+
+def test_share_counts_sum_classes_and_use_quarterly_weighted_average():
+    from bigboss.data.providers.sec import share_count_series
+
+    multi = {"facts": {"dei": {"EntityCommonStockSharesOutstanding": {"units": {"shares": [
+        {"end": "2024-03-31", "val": 5.8e9, "accn": "a1", "filed": "2024-04-25"},   # class A
+        {"end": "2024-03-31", "val": 0.9e9, "accn": "a1", "filed": "2024-04-25"},   # class B
+        {"end": "2024-03-31", "val": 5.5e9, "accn": "a1", "filed": "2024-04-25"},   # class C
+        {"end": "2024-03-31", "val": 99e9, "accn": "a2", "filed": "2024-09-01"}]}}}}}  # later re-filing: ignored
+    s = share_count_series(multi)
+    assert len(s) == 1 and s["value"].iloc[0] == 12.2e9
+    wavg = {"facts": {"us-gaap": {"WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": [
+        {"start": "2024-01-01", "end": "2024-06-30", "val": 1.0e9, "accn": "b", "filed": "2024-07-25"},
+        {"start": "2024-04-01", "end": "2024-06-30", "val": 1.1e9, "accn": "b", "filed": "2024-07-25"}]}}}}}
+    s2 = share_count_series(wavg)
+    assert len(s2) == 1 and s2["value"].iloc[0] == 1.1e9
