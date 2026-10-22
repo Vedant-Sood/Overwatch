@@ -1,14 +1,99 @@
 # Experiment log: results, negative results, failed approaches
 
-**Read this first.** Every model and backtest number below comes from the **SYNTHETIC** market
-(`bigboss/data/synthetic.py`), not from real securities. The development container's network policy blocked every free
-daily price source (Stooq, Yahoo, NSE/BSE) and FRED was down for maintenance, so no real-market backtest could be run here.
-The synthetic market has a *known, planted* signal (a slowly varying per-asset alpha that trailing momentum partially
-reveals). These experiments therefore test whether the **machinery** works: whether it finds a real signal, stays
-calibrated, avoids leakage, and charges costs correctly. They say **nothing** about whether BigBoss can beat real markets.
-Real-market results will almost certainly be weaker. Run `bigboss ingest && bigboss backtest --ablation` to produce them.
+Two experiments are reported:
 
-## Setup (experiment `20261022T044438-49d7`)
+1. **Real data (OBSERVED)**: 9 keyless cross-asset proxies built from FRED, 1990–2026, 28 years out of sample. This is the
+   first evidence about real markets, with strong caveats (below).
+2. **Synthetic data**: a market with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
+
+No stock-level real backtest exists yet: free stock prices need a key (Massive / FMP / Alpha Vantage) or Stooq/Yahoo,
+which the development network blocks.
+
+---
+
+# Part 1 - Real data: FRED cross-asset proxies (experiment `20261022T060054-c2c1`)
+
+| item | value |
+|---|---|
+| universe | XA:NDX (Nasdaq-100), XA:NIKKEI_USD, XA:BRENT, XA:UST10_TR, XA:UST2_TR, XA:EUR, XA:GBP, XA:JPY, XA:INR |
+| benchmark | XA:EW, equal-weight daily-rebalanced basket of the members (4.7%/yr, 7.3% vol over the OOS period) |
+| history | 1990-01-02 → 2026-10-21 (EUR from 1999) |
+| OOS period | **1992-12-04 → 2021-04-26**, 58 walk-forward folds; final holdout from 2021-04-27 **not touched** |
+| horizon / execution | 20 trading days, decision at close *t*, fill at close *t+1* |
+| models | zero-excess, shrunk hist. mean, momentum rule, ridge, LightGBM, XGBoost, MLP, stacking ensemble |
+| costs | proxy half spreads: equity 1bp, rates 1bp, FX 0.5bp, Brent 3bp, + commission, slippage, sqrt impact |
+| runtime | 81 CPU-minutes (4 cores, no GPU) |
+
+**Caveats.** These are proxies, not tradable instruments. Equity indices exclude dividends (understating equity versus
+the basket by roughly 1%/yr). Brent is spot (no futures roll yield). FX is spot without interest carry, which is a large
+omission for INR and JPY. Treasury returns are re-priced from constant-maturity yields. Nine assets is a very small cross-section.
+
+### Forecast quality (OOS)
+
+| model | rank IC | IC t | 80% coverage | Brier | Brier (climatology) |
+|---|---|---|---|---|---|
+| hist. mean | 0.074 | 3.31 | 79.5% | 0.2513 | 0.2492 |
+| momentum rule | 0.044 | 1.73 | 79.3% | 0.2529 | 0.2492 |
+| ridge | 0.051 | 2.21 | 79.2% | 0.2568 | 0.2492 |
+| LightGBM | 0.040 | 1.76 | 80.1% | 0.2540 | 0.2492 |
+| XGBoost | 0.040 | 1.75 | 79.6% | 0.2544 | 0.2492 |
+| **MLP** | **0.080** | **3.31** | 79.6% | 0.2566 | 0.2492 |
+| ensemble | 0.064 | 2.74 | 79.2% | 0.2502 | 0.2492 |
+
+### Strategies (net of costs, OOS)
+
+| strategy | ann. return | ann. excess | Sharpe | IR | IR 90% CI | max DD | turnover | Deflated SR |
+|---|---|---|---|---|---|---|---|---|
+| benchmark (XA:EW) | 4.7% | 0.0% | 0.67 | – | – | −24.9% | 0.02 | – |
+| equal weight (20-day rebalance) | 4.0% | −0.7% | 0.54 | −0.14 | [−0.53, 0.13] | −26.1% | 0.77 | 0.01 |
+| 12-1 momentum top-3 | 5.3% | +0.6% | 0.54 | 0.10 | [−0.20, 0.37] | −29.2% | 2.78 | 0.13 |
+| low-vol top-3 | 1.3% | −3.4% | 0.40 | −0.49 | [−0.85, −0.17] | −20.6% | 1.08 | 0.00 |
+| model: hist. mean | 5.2% | +0.5% | 0.70 | **0.28** | [0.02, 0.55] | −27.3% | 0.11 | 0.44 |
+| model: momentum rule | 5.0% | +0.2% | 0.72 | 0.10 | [−0.19, 0.36] | −25.2% | 0.78 | 0.13 |
+| model: ridge | 4.1% | −0.6% | 0.53 | −0.19 | [−0.46, 0.08] | −33.3% | 1.75 | 0.00 |
+| model: LightGBM | 4.6% | −0.2% | 0.58 | −0.03 | [−0.36, 0.26] | −33.8% | 1.95 | 0.03 |
+| model: XGBoost | 4.7% | −0.1% | 0.59 | 0.00 | [−0.32, 0.28] | −33.7% | 1.99 | 0.05 |
+| model: MLP | 4.5% | −0.2% | 0.58 | −0.07 | [−0.38, 0.23] | −35.0% | 0.96 | 0.02 |
+| ensemble (ungated) | 4.7% | −0.0% | 0.62 | 0.02 | [−0.30, 0.32] | −33.4% | 0.99 | 0.06 |
+| **ensemble (gated, production rule)** | 4.4% | **−0.3%** | 0.59 | **−0.12** | [−0.42, 0.19] | −33.2% | 0.84 | 0.01 |
+
+### Findings (real data)
+
+1. **Statistical skill without economic value.** The ensemble's rank IC is significant (t = 2.7) and the MLP's even more so
+   (t = 3.3), yet no model-driven portfolio beat the equal-weight benchmark after costs with any confidence. The production
+   (gated) ensemble lost 0.3%/yr versus the benchmark. This is the central lesson the objective was designed to expose: rank
+   accuracy across 9 heterogeneous assets mostly reflects persistent level differences (equities drift up, the rupee drifts
+   down), which the benchmark-relative, risk-constrained portfolio cannot monetize after tracking-error penalties.
+2. **The simplest model was the only candidate.** The shrunk historical mean is the only strategy whose IR confidence interval
+   excludes zero ([0.02, 0.55]). After the multiple-testing haircut for 12 strategies, its Deflated Sharpe is 0.44: **not significant**.
+3. **Costs are not the problem.** At 0× costs the gated ensemble still had negative excess (−0.3%/yr). Higher assumed costs
+   *reduced* turnover and slightly *improved* results (gated IR −0.10 at 0× → +0.01 at 3×), a sign that most trades were noise.
+4. **Regimes.** The ensemble added value only in bull/high-vol periods (+1.5%/yr, 1,733 days). It lost in bear/high-vol
+   (−1.7%/yr), bear/low-vol (−1.5%/yr) and bull/low-vol (−0.5%/yr).
+5. **Model drawdowns were deeper than the benchmark's** (≈ −33% vs −25%), because the models tilted toward equities
+   and oil (beta ≈ 1.04).
+6. **Ablation.** No single feature group materially changed LightGBM. Removing momentum, volatility or cross-sectional
+   features lowered IR by 0.10–0.13. Liquidity features carried nothing (the proxies have no volume), as expected.
+   Macro features (FRED, availability-lagged) had the largest IC contribution (−0.005 when removed), but the effect is small.
+7. **Calibration held on real data.** Conformalized 80% intervals covered 79–80% out of sample for every model, through
+   1998, 2000–02, 2008 and 2020. Probability forecasts again failed to beat climatology.
+8. **Data-quality checks caught real events.** Validation flagged Brent's April 2020 collapse, the rupee's early-1990s peg
+   (stale prints), and the weekly lag in Fed FX releases.
+
+**Bottom line.** On this real dataset BigBoss would mostly have recommended INSUFFICIENT EVIDENCE or small tilts, and the
+gated system's realized edge was zero to slightly negative. The platform reports exactly that, which is its job. Whether
+stock-level data (a much larger cross-section, plus fundamentals and filings) changes the picture is the next experiment.
+
+---
+
+# Part 2 - Synthetic market (machinery validation)
+
+**Read this first.** Every number in Part 2 comes from the **SYNTHETIC** market (`bigboss/data/synthetic.py`), not
+from real securities. It has a *known, planted* signal (a slowly varying per-asset alpha that trailing momentum partially
+reveals). These experiments test whether the machinery finds a real signal, stays calibrated, avoids leakage, and charges
+costs correctly.
+
+### Setup (experiment `20261022T044438-49d7`)
 
 | item | value |
 |---|---|
@@ -21,7 +106,7 @@ Real-market results will almost certainly be weaker. Run `bigboss ingest && bigb
 | costs | base estimates from `configs/bigboss.toml` (≈9 bps round trip for these assets), square-root impact |
 | strategies tested | 12 (the Deflated Sharpe uses this count) |
 
-## Strategy results (net of estimated costs, OOS only)
+### Strategy results (net of estimated costs, OOS only)
 
 | strategy | ann. return | ann. excess | Sharpe | IR | IR 90% CI | max DD | turnover/yr | Deflated SR |
 |---|---|---|---|---|---|---|---|---|
@@ -38,7 +123,7 @@ Real-market results will almost certainly be weaker. Run `bigboss ingest && bigb
 | ensemble (ungated) | 22.4% | 8.0% | 1.22 | 1.22 | [0.58, 1.83] | −15.4% | 2.10 | 0.88 |
 | ensemble (gated, the production rule) | 20.5% | 6.1% | 1.14 | 0.96 | [0.35, 1.63] | −15.6% | 2.13 | 0.72 |
 
-## Forecast quality (OOS)
+### Forecast quality (OOS)
 
 | model | rank IC | IC t (overlap-corrected) | direction acc. | 80% interval coverage | Brier | Brier (climatology) |
 |---|---|---|---|---|---|---|
@@ -51,7 +136,7 @@ Real-market results will almost certainly be weaker. Run `bigboss ingest && bigb
 | MLP | 0.074 | 3.32 | 52.2% | 80.1% | 0.2508 | 0.2497 |
 | ensemble | 0.077 | 3.40 | 53.3% | 79.1% | 0.2510 | 0.2497 |
 
-## What worked
+### What worked
 
 * **Calibration.** Conformalized 80% intervals landed within 79–81% coverage for every model, out of sample.
 * **The pipeline finds a planted signal, and only a planted one.** The ensemble's IC is 0.077 (t = 3.4) on the market with alpha.
@@ -62,7 +147,7 @@ Real-market results will almost certainly be weaker. Run `bigboss ingest && bigb
 * **Regimes.** The gated ensemble's excess was positive in all four ex-ante regimes: bull/low-vol +2.1% (632 days),
   bull/high-vol +7.6% (494), bear/low-vol +8.8% (201), bear/high-vol +13.3% (only 58 days, too few to rely on).
 
-## Negative results (kept on purpose)
+### Negative results (kept on purpose)
 
 1. **The transparent baseline won.** A plain 12-1 momentum top-k portfolio beat every model, including the ensemble
    (IR 1.45 vs 1.22), and is the only strategy besides the momentum rule with Deflated Sharpe ≥ 0.95. On this
@@ -90,12 +175,16 @@ Real-market results will almost certainly be weaker. Run `bigboss ingest && bigb
 * The simulator let costs drive cash negative (implicit leverage) and treated unknown ADV as unlimited liquidity.
 * The synthetic benchmark compounded mean *log* returns (not an investable index), which made equal weight look like +4.5%/yr alpha.
 * Ablation re-runs used a different training window than the main run.
+* On real data, a label can be missing (e.g. no FX quote on the exit date) while its label-end date is known; one NaN label
+  turned the conformal quantile into NaN. Calibrators now drop missing labels (synthetic data never had gaps).
 * A per-name abstention rule based on σ/|μ| would have abstained on everything, because single-stock forecasts always have
   σ ≫ |μ|. It was replaced by epistemic criteria (model disagreement, sign agreement, OOS skill).
 
+---
+
 ## Not yet done
 
-* Real-data experiments (US large caps, ETFs, NSE), with survivorship-bias-aware universes.
+* Stock-level real-data experiments (US large caps, ETFs, NSE) - needs a free Massive/FMP/Alpha Vantage key or Stooq/Yahoo access.
 * Objective comparison across risk measures (variance vs CVaR vs drawdown) on real data.
 * Hyperparameter search (Optuna + purged K-fold is wired in `backtest/splits.py` but deliberately not used, to limit
   multiple testing until real data is available).

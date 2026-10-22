@@ -338,11 +338,10 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) for the experiments run during developm
 
 Known limitations (honest list):
 
-* **No real-market results yet.** The development container's network policy blocked Stooq, Yahoo, Ken French,
-  Treasury, ECB and NSE/BSE, and FRED was in maintenance. Real-data ingestion was verified only for SEC EDGAR
-  (fundamentals/filings for AAPL, MSFT, JPM; figures checked against Apple's reported FY2025 revenue/net income) and World Bank.
-  All model and backtest numbers in `docs/RESULTS.md` therefore come from the **synthetic** market. Run
-  `bigboss ingest && bigboss backtest` on your machine to get real-data results, and expect them to be much weaker.
+* **Real-market evidence so far is limited to 9 FRED cross-asset proxies** (no dividends, spot commodities, FX without
+  carry). On them the ensemble showed significant forecast skill (rank IC 0.064, t = 2.7) but **no economic value after
+  costs** (gated IR −0.12, 1992–2021). See `docs/RESULTS.md`. Stock-level backtests need a free price key
+  (`MASSIVE_API_KEY`, `FMP_API_KEY` or `ALPHAVANTAGE_API_KEY`) or network access to Stooq/Yahoo.
 * Survivorship bias in the default universe; no free source of point-in-time index membership or delisted prices.
 * Macro values use the latest vintage with conservative lags, not ALFRED real-time vintages (revisions can leak slightly).
 * Corporate actions rely on provider-adjusted prices. Alpha Vantage free data is unadjusted and is flagged.
