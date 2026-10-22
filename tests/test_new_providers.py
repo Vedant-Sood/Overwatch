@@ -81,6 +81,9 @@ def test_fmp_parser():
     assert len(FmpProvider.parse(body)) == 2
     with pytest.raises(ProviderError):
         FmpProvider.parse(json.dumps({"Error Message": "Invalid API KEY."}))
+    adj = FmpProvider.parse_dividend_adjusted(json.dumps([{"symbol": "AAPL", "date": "2016-01-06", "adjOpen": 22.6, "adjHigh": 23.0,
+                                                            "adjLow": 22.4, "adjClose": 22.64, "volume": 273829600}]))
+    assert adj["adjClose"].iloc[0] == 22.64
     fp = FmpProvider(None, api_key=None)
     assert fp.supports("AAPL")  # may be authenticated by a proxy-injected header
     fp.disabled_reason = "no credentials"
@@ -147,3 +150,18 @@ def test_massive_parsers():
         "title": "Apple beats estimates", "published_utc": "2026-10-21T14:30:00Z", "article_url": "https://www.reuters.com/a",
         "description": "", "insights": [{"ticker": "AAPL", "sentiment": "negative", "sentiment_reasoning": "x"}]}]}), "AAPL")
     assert n[0]["provider_sentiment"] == -1.0 and n[0]["source_domain"] == "reuters.com"
+
+
+def test_credentials_are_redacted_from_errors():
+    from bigboss.data.providers.base import redact
+
+    msg = "Client error '402' for url 'https://financialmodelingprep.com/x?symbol=QQQ&apikey=S3CRET&from=2005-01-01'"
+    assert "S3CRET" not in redact(msg) and "apikey=***" in redact(msg)
+    assert "tok" not in redact("https://finnhub.io/api?token=tok123&x=1").split("token=")[1][:3]
+
+
+def test_fmp_fetches_long_history_in_windows():
+    p = FmpProvider(None, api_key="k")
+    w = p._windows("2005-01-01")
+    assert w[0]["from"] == "2005-01-01" and len(w) >= 2
+    assert all(pd.Timestamp(a["to"]) < pd.Timestamp(b["from"]) for a, b in zip(w, w[1:]))  # contiguous, no overlap
