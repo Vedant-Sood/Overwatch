@@ -48,7 +48,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 cp configs/bigboss.toml configs/local.toml   # then edit [data].sec_user_agent
 
 bigboss ingest --groups cross_asset --news     # keyless real data: FRED cross-asset proxies + macro + GDELT headlines
-bigboss ingest --groups us_etfs us_equities   # stock-level data: needs Stooq/Yahoo reachable or MASSIVE_API_KEY / FMP_API_KEY
+bigboss ingest --groups us_etfs us_equities   # stock-level data: FMP_API_KEY (dividend-adjusted, long history) or Massive
+bigboss ingest --no-prices --massive-market 500 --news   # whole US market (Massive) -> point-in-time top-500 universe incl. delisted
+bigboss backtest --horizon 20 --min-train 200 --step 21 --ablation   # settings for a ~2-year history
 bigboss status                                # coverage, freshness, validation issues
 bigboss train --horizon 20                    # walk-forward training, registers a model version, applies promotion gates
 bigboss backtest --horizon 20 --ablation      # baselines vs models, net of costs; cost sensitivity; ablation
@@ -321,7 +323,7 @@ Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/doc
 ## Testing
 
 ```bash
-pytest -m "not network"     # 55 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
+pytest -m "not network"     # 63 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
                             # simulator accounting, SEC parsing, decisions, safety, paper broker, agents, registry, API
 pytest -m network           # live provider checks (skip cleanly when a provider is unreachable)
 cd frontend && npm run typecheck && npm run build
@@ -342,11 +344,14 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) for the experiments run during developm
 
 Known limitations (honest list):
 
-* **Real-market evidence so far is limited to 9 FRED cross-asset proxies** (no dividends, spot commodities, FX without
-  carry). On them the ensemble showed significant forecast skill (rank IC 0.064, t = 2.7) but **no economic value after
-  costs** (gated IR −0.12, 1992–2021). See `docs/RESULTS.md`. Stock-level backtests need a free price key
-  (`MASSIVE_API_KEY`, `FMP_API_KEY` or `ALPHAVANTAGE_API_KEY`) or network access to Stooq/Yahoo.
-* Survivorship bias in the default universe; no free source of point-in-time index membership or delisted prices.
+* **Real-market evidence (see `docs/RESULTS.md`).** Across three real datasets, no model showed economic value after
+  costs that survives proper benchmarking: FRED cross-asset proxies, 1992-2021 (significant IC, gated IR −0.12); 20 US
+  large caps, 2008-2023 (no model beat equal weight of the same survivor names); and a point-in-time top-500 US stock universe
+  including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system stayed near SPY). The point-in-time history is
+  only ~2 years (Massive free plan), far too short for confident conclusions.
+* Survivorship bias: the hand-picked default universe is biased (measured at ~2.5%/yr in 2025-26). `bigboss ingest
+  --massive-market 500` builds a point-in-time universe with delisted names, limited to the data plan's history window.
+  FMP's free plan serves only a subset of symbols (most ETFs and NSE/BSE tickers need a paid plan).
 * Macro values use the latest vintage with conservative lags, not ALFRED real-time vintages (revisions can leak slightly).
 * Corporate actions rely on provider-adjusted prices. Alpha Vantage free data is unadjusted and is flagged.
 * Bid-ask spreads are configured per asset class (real quotes are not freely available). Corwin–Schultz estimates are

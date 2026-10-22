@@ -4,7 +4,8 @@ Experiments reported:
 
 1. **Part 1 - real cross-asset proxies** (FRED, keyless), 1992-2021 out of sample.
 2. **Part 1b - real US large caps** (FMP, dividend-adjusted), 2008-2023 out of sample - survivorship-biased universe.
-3. **Part 1c - real point-in-time US universe** (Massive whole-market bars, top-500 by trailing liquidity) - see below.
+3. **Part 1c - real point-in-time US universe** (Massive whole-market bars, top-500 by trailing liquidity, delisted names
+   included), Aug 2025 - Jul 2026 out of sample.
 4. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
 
 ---
@@ -147,6 +148,54 @@ momentum rule 0.003 / 0.11; XGBoost −0.001 / −0.03; ridge −0.001 / −0.03
 
 **Verdict:** with 20 hand-picked survivors, there is no evidence that BigBoss's models add value. This experiment mainly
 demonstrates why a point-in-time universe is required (Part 1c).
+
+---
+
+# Part 1c - Real data: point-in-time US stock universe (Massive; experiments `20261022T160534-c20a` h=5, `20261022T162144-28ee` h=20)
+
+| item | value |
+|---|---|
+| data | Massive grouped-daily bars for **every** US-listed security, 500 sessions (2024-10-23 → 2026-10-21; the free plan's 2-year window), split-adjusted (no dividends) |
+| universe | on each date, the top 500 **common stocks** by median dollar volume over the previous 60 sessions (price ≥ $5, ≥ 40 sessions of history), using only data known before that date |
+| breadth | 701 distinct stocks were ever members, **87 of them later delisted, acquired or renamed** (kept in the test); 697 with SEC XBRL fundamentals; plus 24 ETFs as instruments; SPY benchmark |
+| OOS | **2025-08-13 → 2026-07-07** (≈ 11 months, 11 monthly retrains); holdout from 2026-07-08 untouched |
+| protocol | min. 200 training sessions, retrain every 21, 5-day embargo, purged labels; costs at base estimates with real ADV-based impact |
+
+| strategy | h = 5: ann. excess | IR | h = 20: ann. excess | IR |
+|---|---|---|---|---|
+| equal weight of PIT universe | +10.7% | 0.89 | +10.7% | 0.89 |
+| 12-1 momentum top-10 | +92.3% | 1.56 (DSR 0.43) | same | same |
+| low-vol top-10 | −18.2% | −1.68 | same | same |
+| model: ridge | +37.2% | 1.19 | +11.4% | 0.64 |
+| model: LightGBM | −2.7% | −0.08 | +1.2% | 0.16 |
+| model: XGBoost | +23.6% | 1.58 | +7.7% | 0.65 |
+| model: MLP | +24.0% | 1.21 | +18.9% | 1.38 |
+| ensemble (ungated) | +15.6% | 1.05 | +13.4% | 1.15 |
+| **ensemble (gated)** | **−3.6%** | −1.15 | **+0.8%** | 0.30 |
+
+Forecast skill (rank IC / t, h = 5 → h = 20): ensemble 0.015 / 0.62 → 0.026 / 0.67; LightGBM 0.005 → 0.026; XGBoost 0.013 → 0.021;
+ridge 0.007 → 0.016; MLP 0.010 → 0.063 (t 1.71); momentum rule −0.073 (short-term reversal) → +0.142 (t 1.27).
+80% intervals covered 76-81%. Every Brier score was worse than climatology.
+
+**Findings**
+
+1. **No statistically detectable forecast skill** at either horizon (all |IC t| < 2). The impressive-looking model
+   returns are market exposure: the ungated ensemble (+13-16%/yr vs SPY) roughly matches equal weight of the same
+   point-in-time universe (+10.7%), which beat SPY because mid/large caps beyond the mega caps outperformed in this window.
+   The ungated models also ran betas above 1 against SPY (ensemble 1.39 at h = 5 and 1.07 at h = 20; ridge up to 1.96),
+   so part of their excess return is simply leverage to a rising market.
+2. **The gate behaved correctly.** With no demonstrated skill the gated ensemble mostly stayed in SPY (turnover 0.9-1.1)
+   and ended near zero (−3.6% / +0.8%). The production rule refused to bet on noise.
+3. **Survivorship bias, measured.** A first run had a bug: a global 260-day history filter silently dropped 57 of the 87
+   delisted members. Fixing it lowered equal weight's excess from +13.2% to +10.7%/yr. That **2.5%/yr is the measured
+   survivorship bonus** in this window, and it is why Part 1b's hand-picked universe cannot be trusted.
+4. **Eleven months is too short.** Momentum top-10's +92% has a Deflated Sharpe of only 0.43, and the ablation swings by
+   ±1 IR when single groups are removed (fundamentals: IC 0.026 → 0.003 when removed, the first hint they help, but at t < 1).
+   No feature conclusions are warranted. Any model trained on this window would fail the sample-size and economic gates,
+   and the scanner would show it research-only.
+5. **Universe hygiene matters.** Three data bugs were found and fixed before these results: ETFs/ETNs leaking in through
+   Massive's paginated reference data, delisted tickers missing from SEC's current ticker map (solved with Massive CIKs),
+   and the history-filter survivorship leak above.
 
 ---
 
