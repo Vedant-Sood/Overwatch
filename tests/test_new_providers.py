@@ -165,3 +165,22 @@ def test_fmp_fetches_long_history_in_windows():
     w = p._windows("2005-01-01")
     assert w[0]["from"] == "2005-01-01" and len(w) >= 2
     assert all(pd.Timestamp(a["to"]) < pd.Timestamp(b["from"]) for a, b in zip(w, w[1:]))  # contiguous, no overlap
+
+
+def test_common_stock_filter_checks_each_record_type():
+    """Massive pagination can drop the type filter; ETFs on later pages must not be treated as common stock."""
+    from bigboss.data.providers.massive_market import MassiveMarket
+
+    pages = {
+        "https://api.massive.com/v3/reference/tickers": json.dumps({"results": [
+            {"ticker": "AAPL", "type": "CS", "cik": "0000320193"}], "next_url": "https://api.massive.com/v3/reference/tickers?cursor=x"}),
+        "https://api.massive.com/v3/reference/tickers?cursor=x": json.dumps({"results": [
+            {"ticker": "AAPU", "type": "ETF", "cik": "0001424958"}, {"ticker": "MSFT", "type": "CS", "cik": "0000789019"}]}),
+    }
+
+    class Http:
+        def get(self, url, params=None, max_age_s=0):
+            return pages[url], None
+
+    cs = MassiveMarket(Http()).common_stocks()
+    assert set(cs) == {"AAPL", "MSFT"}
