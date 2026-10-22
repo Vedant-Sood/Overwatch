@@ -46,6 +46,8 @@ def cmd_ingest(args):
         out["macro"] = ing.ingest_macro()
     if not args.no_sec:
         out["sec"] = ing.ingest_sec(syms)
+    if getattr(args, "news", False):
+        out["news"] = ing.ingest_news(syms)
     for k, v in out.items():
         s = pd.Series(v).value_counts().to_dict()
         print(f"{k}: {s}")
@@ -163,7 +165,7 @@ def cmd_update(args):
 
     cfg = get_config()
     if not args.synthetic:
-        cmd_ingest(argparse.Namespace(groups=None, symbols=None, no_prices=False, no_macro=False, no_sec=args.skip_sec))
+        cmd_ingest(argparse.Namespace(groups=None, symbols=None, no_prices=False, no_macro=False, no_sec=args.skip_sec, news=False))
     bb = _bb(args)
     bb.dataset(refresh=True)
     for h in cfg.get("forecast.horizons"):
@@ -206,6 +208,7 @@ def main(argv=None):
     sp.add_argument("--no-prices", action="store_true")
     sp.add_argument("--no-macro", action="store_true")
     sp.add_argument("--no-sec", action="store_true")
+    sp.add_argument("--news", action="store_true", help="also fetch recent headlines (GDELT keyless, or Finnhub with a key)")
     add("status", cmd_status)
     sp = add("demo-data", cmd_demo, synthetic=False)
     sp.add_argument("--n-assets", type=int, default=30)
