@@ -97,3 +97,23 @@ def test_validation_flags_bad_data():
     assert any(i.check_name == "extreme_moves" for i in validate_prices(split, "A", today=p["date"].max()))
     stale = validate_prices(p, "A", today=p["date"].max() + pd.Timedelta(days=30))
     assert any(i.check_name == "freshness" for i in stale)
+
+
+def test_pit_universe_keeps_short_history_names(cfg, synth_market):
+    """A stock that delists after 120 sessions must stay in a point-in-time universe (no survivorship filter)."""
+    from bigboss.data.store import Store
+    from bigboss.features.dataset import build_dataset
+
+    c = cfg.with_overrides({"benchmarks": {"default": "SYNMKT", "US": "SYNMKT"}})
+    st = Store.for_mode(c.data_dir, "SYNTHETIC")
+    p = synth_market["prices"]
+    dates = sorted(p["date"].unique())
+    p = p[~((p["symbol"] == "SYN001") & (p["date"] > dates[119]))]  # SYN001 "delists"
+    st.upsert("prices", p, ["symbol", "date"])
+    st.upsert("symbols", synth_market["symbols"], ["symbol"])
+    assert "SYN001" not in build_dataset(st, c).tradeable  # without a PIT universe, the 260-day filter applies
+    mem = pd.DataFrame([{"date": d, "symbol": s, "rank": 1} for d in dates[50:120] for s in ("SYN001", "SYN002")])
+    st.upsert("universe_membership", mem, ["date", "symbol"])
+    ds = build_dataset(st, c)
+    assert "SYN001" in ds.tradeable
+    assert ds.frame.xs("SYN001", level="symbol").index.max() <= dates[119]

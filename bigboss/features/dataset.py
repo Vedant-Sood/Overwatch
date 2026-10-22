@@ -35,6 +35,14 @@ def build_dataset(store: Store, cfg: Config, symbols: list[str] | None = None, m
         raise ValueError(f"no price data in the {store.mode} store - run ingestion first")
     meta = store.symbols().set_index("symbol")
     counts = prices.groupby("symbol").size()
+    try:
+        has_membership = int(store.query("SELECT COUNT(*) AS n FROM universe_membership")["n"].iloc[0]) > 0
+    except Exception:  # older stores without the table
+        has_membership = False
+    if has_membership:
+        # The point-in-time universe already requires >= 40 sessions of history at each date. A global
+        # history filter would silently drop names that listed late or delisted early (survivorship bias).
+        min_history = min(min_history, 40)
     keep = counts[counts >= min_history].index
     prices = prices[prices["symbol"].isin(keep)]
     syms = sorted(prices["symbol"].unique())
