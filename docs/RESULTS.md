@@ -1,13 +1,11 @@
 # Experiment log: results, negative results, failed approaches
 
-Two experiments are reported:
+Experiments reported:
 
-1. **Real data (OBSERVED)**: 9 keyless cross-asset proxies built from FRED, 1990–2026, 28 years out of sample. This is the
-   first evidence about real markets, with strong caveats (below).
-2. **Synthetic data**: a market with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
-
-No stock-level real backtest exists yet: free stock prices need a key (Massive / FMP / Alpha Vantage) or Stooq/Yahoo,
-which the development network blocks.
+1. **Part 1 - real cross-asset proxies** (FRED, keyless), 1992-2021 out of sample.
+2. **Part 1b - real US large caps** (FMP, dividend-adjusted), 2008-2023 out of sample - survivorship-biased universe.
+3. **Part 1c - real point-in-time US universe** (Massive whole-market bars, top-500 by trailing liquidity) - see below.
+4. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
 
 ---
 
@@ -100,6 +98,55 @@ omission for INR and JPY. Treasury returns are re-priced from constant-maturity 
 **Bottom line.** On this real dataset BigBoss would mostly have recommended INSUFFICIENT EVIDENCE or small tilts, and the
 gated system's realized edge was zero to slightly negative. The platform reports exactly that, which is its job. Whether
 stock-level data (a much larger cross-section, plus fundamentals and filings) changes the picture is the next experiment.
+
+---
+
+# Part 1b - Real data: 20 US large caps, 2008-2023 (FMP, dividend-adjusted; experiment `20261022T124953-d909`)
+
+| item | value |
+|---|---|
+| universe | AAPL AMZN BAC CSCO CVX DIS GOOGL INTC JNJ JPM KO META MSFT NVDA PEP T UNH V WMT XOM (the subset of the configured list that FMP's free plan serves) |
+| benchmark | SPY (dividend-adjusted) |
+| data | FMP daily bars 2005-2026, split- and dividend-adjusted; SEC XBRL fundamentals and filing events for all 20; FRED/Treasury/World Bank macro |
+| OOS | **2008-01-04 → 2023-07-12**, 31 walk-forward folds; holdout from 2023-07-13 untouched |
+| horizon | 20 days, fill at next close, cost model at base estimates |
+
+**Read this caveat first: the universe is survivorship-biased.** These 20 names were chosen *in 2026* because they are
+today's giants. Any strategy holding them looks good against SPY in hindsight, so the meaningful comparison is
+against **equal weight of the same 20 names**, not SPY.
+
+| strategy | ann. excess vs SPY | IR | IR 90% CI | turnover | Deflated SR |
+|---|---|---|---|---|---|
+| equal weight (the fair yardstick) | **+5.4%** | 0.91 | [0.60, 1.34] | 0.33 | 0.97 |
+| 12-1 momentum top-k | +7.0% | 0.57 | [0.22, 1.01] | 2.81 | 0.72 |
+| low-vol top-k | −0.7% | −0.14 | [−0.52, 0.27] | 2.07 | 0.01 |
+| model: hist. mean | +5.7% | 0.95 | [0.59, 1.33] | 0.55 | 0.98 |
+| model: ridge | +3.4% | 0.49 | [0.08, 0.83] | 2.73 | 0.60 |
+| model: LightGBM | +3.9% | 0.51 | [0.13, 0.90] | 2.88 | 0.64 |
+| model: XGBoost | +3.5% | 0.49 | [0.12, 0.91] | 2.87 | 0.61 |
+| model: MLP | +5.0% | 0.67 | [0.33, 1.02] | 2.56 | 0.84 |
+| ensemble (ungated) | +4.7% | 0.67 | [0.33, 1.02] | 2.27 | 0.84 |
+| **ensemble (gated)** | **+1.9%** | 0.43 | [0.08, 0.78] | 1.25 | 0.51 |
+
+Forecast quality (rank IC / t): hist. mean 0.072 / 3.04; MLP 0.041 / 1.86; ensemble 0.045 / 2.06; LightGBM 0.005 / 0.26;
+momentum rule 0.003 / 0.11; XGBoost −0.001 / −0.03; ridge −0.001 / −0.03. 80% intervals covered 79-80%.
+
+**Findings**
+
+1. **No model beat equal weight of the same names.** Every positive number versus SPY is explained by the
+   survivorship-biased universe. Equal weight (+5.4%/yr) beat the ensemble (+4.7%), and the gated production rule (+1.9%)
+   gave up most of the tilt by abstaining or staying close to SPY.
+2. **Tree models and the linear model had zero cross-sectional skill** (IC ≈ 0). The only signal came from the
+   shrunk historical mean, which is the survivorship effect itself (persistent winners kept winning), and a weak MLP.
+3. **SEC fundamentals did not help.** In the ablation, removing the fundamental group *raised* LightGBM's IR by 0.13.
+   This was the first real test of the point-in-time XBRL features (Model B inputs), and it was negative. Removing
+   momentum (+0.17) or market features (+0.14) also helped; only volatility features (−0.02 IR, −0.017 IC) and filing
+   events (−0.01) carried anything.
+4. **Costs barely mattered** (gated excess +1.9% at 0× → +1.7% at 3×). The problem is signal, not friction.
+5. The gated ensemble's excess was positive in bear/high-vol (+3.4%), bull/high-vol (+4.0%) and ~0 in bull/low-vol (+0.3%).
+
+**Verdict:** with 20 hand-picked survivors, there is no evidence that BigBoss's models add value. This experiment mainly
+demonstrates why a point-in-time universe is required (Part 1c).
 
 ---
 
