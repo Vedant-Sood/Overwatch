@@ -128,3 +128,24 @@ def test_api_end_to_end(synth_service):
     assert c.post("/api/portfolio/propose", json={"mode": "synthetic", "profile": "balanced"}).status_code == 400
     assert c.get("/api/research/NOPE?mode=synthetic").status_code == 409
     assert c.get("/api/backtests/..%2F..%2Fetc").status_code in (400, 404)
+
+
+def test_economic_gate_and_research_only_mode(synth_service):
+    """Models are judged on net-of-cost economic value; without a champion, forecasts are research-only."""
+    import json
+
+    reg = synth_service.registry
+    vid = reg.champion(20)
+    econ = reg.meta(vid)["economic"]
+    assert {"information_ratio", "psr_excess", "ann_excess_return"} <= set(econ)
+    assert "economic_value" in reg.meta(vid)["gates"]["checks"]
+    saved = reg.state_path.read_text()
+    try:
+        st = json.loads(saved)
+        st["champions"].pop("20")
+        reg.state_path.write_text(json.dumps(st))
+        s = synth_service.scan(20)
+        assert s["research_only"] and "research only" in s["research_only_reason"]
+        assert {c["action"] for c in s["candidates"]} == {"INSUFFICIENT_EVIDENCE"}
+    finally:
+        reg.state_path.write_text(saved)

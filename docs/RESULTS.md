@@ -80,6 +80,23 @@ omission for INR and JPY. Treasury returns are re-priced from constant-maturity 
 8. **Data-quality checks caught real events.** Validation flagged Brent's April 2020 collapse, the rupee's early-1990s peg
    (stale prints), and the weekly lag in Fed FX releases.
 
+9. **The promotion gates were wrong, and were fixed.** All three real-data model versions (h = 5, 20, 60) initially
+   passed the forecast-only gates (IC t 2.6–2.8, calibration, sample size). Because the objective is net economic value,
+   an economic gate was added: the gated strategy's walk-forward net IR must exceed 0, and PSR(net edge > 0) must be at
+   least 0.90. Re-evaluation (`bigboss models reevaluate`) demoted every version:
+
+   | version | net IR | IR 90% CI | ann. excess | PSR(edge > 0) | gate |
+   |---|---|---|---|---|---|
+   | h = 5 | +0.17 | [−0.12, 0.44] | +0.30% | 0.82 | fail (PSR < 0.90) |
+   | h = 20 | −0.12 | [−0.42, 0.19] | −0.32% | 0.26 | fail |
+   | h = 60 | −0.19 | [−0.47, 0.09] | −0.37% | 0.15 | fail |
+
+   The h = 20 economic check reproduces the full experiment's gated result exactly (IR −0.119), a useful consistency check.
+   With no champion, the observed-data scanner shows forecasts **research only**, with every action INSUFFICIENT EVIDENCE.
+10. **Drift.** Against the 1990–2021 training distribution, the last 126 days show extreme PSI for rate features (T-bill 8.3,
+    10y yield 6.9), i.e. the post-2022 rate regime. These are market-state features: this is regime change, not a data bug,
+    but it is another reason not to deploy.
+
 **Bottom line.** On this real dataset BigBoss would mostly have recommended INSUFFICIENT EVIDENCE or small tilts, and the
 gated system's realized edge was zero to slightly negative. The platform reports exactly that, which is its job. Whether
 stock-level data (a much larger cross-section, plus fundamentals and filings) changes the picture is the next experiment.

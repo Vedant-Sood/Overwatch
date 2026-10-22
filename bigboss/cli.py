@@ -150,6 +150,13 @@ def cmd_models(args):
         print(json.dumps(bb.registry.promote(args.version, args.force_reason), indent=1, default=str))
     elif args.action == "rollback":
         print(bb.registry.rollback(args.horizon))
+    elif args.action == "reevaluate":
+        vids = [args.version] if args.version else [m["version"] for m in bb.registry.versions()]
+        for v in vids:
+            r = bb.registry.reevaluate(v)
+            e = r["economic"]
+            print(f"{v}: gates passed={r['gates']['passed']}  net IR={e.get('information_ratio')}  ann excess={e.get('ann_excess_return')}"
+                  f"{'  -> DEMOTED' if r['demoted'] else ''}")
     elif args.action == "challenge":
         print(json.dumps(bb.registry.challenge(args.version), indent=1, default=str))
     else:
@@ -232,7 +239,7 @@ def main(argv=None):
     sp.add_argument("question")
     sp.add_argument("--symbols", nargs="*")
     sp = add("models", cmd_models)
-    sp.add_argument("action", nargs="?", choices=["list", "promote", "rollback", "challenge"], default="list")
+    sp.add_argument("action", nargs="?", choices=["list", "promote", "rollback", "challenge", "reevaluate"], default="list")
     sp.add_argument("version", nargs="?")
     sp.add_argument("--horizon", type=int, default=20)
     sp.add_argument("--force-reason")

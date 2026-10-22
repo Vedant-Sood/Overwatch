@@ -284,7 +284,11 @@ Credentials may only come from environment variables.
   record, a training-feature reference (deciles), and metadata (data fingerprint, folds, metrics).
 * **Promotion gates** (predetermined, on the *full* OOS record, never a recent streak): ensemble rank-IC t ≥ 1.0,
   80% interval coverage within [0.72, 0.88], Brier ≤ climatology + 0.005, ≥ 24 independent evaluation periods,
-  and, for a challenger, a positive paired IC difference against the champion on common dates. Forced promotions
+  **an economic test: the gated ensemble's walk-forward backtest must have net-of-cost IR > 0 and ≥ 90% probability
+  (PSR) that its true net edge is positive**, and, for a challenger, a positive paired IC difference against the champion
+  on common dates. Forecast skill alone (a significant IC) is not enough; on real data it was not. Gate changes can be
+  applied retroactively with `bigboss models reevaluate`, which demotes failing champions and logs why. Without a
+  champion, the scanner shows the latest model's forecasts as **research only**, with every action INSUFFICIENT EVIDENCE. Forced promotions
   require a written reason and are recorded. `bigboss models rollback --horizon 20` restores the previous champion.
 * **Drift**: PSI of each feature over the last 126 days against training deciles. Market-state features are labelled
   separately, since their drift usually means a regime change rather than a broken pipeline.
