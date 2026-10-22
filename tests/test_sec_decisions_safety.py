@@ -121,3 +121,10 @@ def test_share_counts_sum_classes_and_use_quarterly_weighted_average():
         {"start": "2024-04-01", "end": "2024-06-30", "val": 1.1e9, "accn": "b", "filed": "2024-07-25"}]}}}}}
     s2 = share_count_series(wavg)
     assert len(s2) == 1 and s2["value"].iloc[0] == 1.1e9
+
+
+def test_concept_without_units_is_skipped():
+    from bigboss.data.providers.sec import normalize_company_facts
+
+    out = normalize_company_facts({"facts": {"us-gaap": {"Revenues": {"units": {}}}}})
+    assert "revenue" not in out
