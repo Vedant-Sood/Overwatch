@@ -321,7 +321,7 @@ Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/doc
 ## Testing
 
 ```bash
-pytest -m "not network"     # 46 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
+pytest -m "not network"     # 55 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
                             # simulator accounting, SEC parsing, decisions, safety, paper broker, agents, registry, API
 pytest -m network           # live provider checks (skip cleanly when a provider is unreachable)
 cd frontend && npm run typecheck && npm run build
