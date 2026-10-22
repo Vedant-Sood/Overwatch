@@ -1,0 +1,133 @@
+# BigBoss configuration template.
+# Copy to configs/local.toml (git-ignored) and point BIGBOSS_CONFIG at it to override.
+# Nothing in here enables real-money trading.
+
+[paths]
+data_dir = "data"               # DuckDB store, raw-response cache, model registry, paper broker DB
+
+[data]
+# Order matters: the first provider that supports a symbol is used for it.
+# stooq      - free, keyless daily OHLCV for US/intl equities, ETFs, indices
+# yahoo      - free chart endpoint; needed for NSE/BSE (.NS/.BO). Personal research use only - read Yahoo's terms.
+# alphavantage - needs a free key in env ALPHAVANTAGE_API_KEY
+price_providers = ["stooq", "yahoo", "alphavantage"]
+history_start = "2005-01-01"
+sec_user_agent = "BigBoss research (set-your-email@example.com)"   # SEC requires a contact UA
+max_staleness_days = 5          # data older than this is flagged STALE in the API and dashboard
+
+[universe]
+# Symbols use a neutral form; providers translate them. Suffix .NS = NSE India, .BO = BSE.
+# NOTE: a hand-picked list of today's survivors is survivorship-biased. Add delisted names
+# to configs/delisted.csv where you have data for them.
+us_etfs = ["SPY", "QQQ", "IWM", "DIA", "EFA", "EEM", "TLT", "IEF", "LQD", "HYG", "GLD", "SLV", "DBC", "VNQ",
+           "XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLU", "XLB", "XLRE", "XLC"]
+us_equities = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "JPM", "JNJ", "XOM", "PG", "V", "UNH", "HD",
+               "KO", "PEP", "WMT", "CVX", "MRK", "BAC", "CSCO", "INTC", "ORCL", "IBM", "T", "DIS"]
+india_equities = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "HINDUNILVR.NS",
+                  "ITC.NS", "SBIN.NS", "BHARTIARTL.NS", "LT.NS"]
+india_etfs = ["NIFTYBEES.NS", "BANKBEES.NS", "GOLDBEES.NS"]
+indices = ["^SPX", "^NDX", "^DJI", "^NSEI", "^N225", "^FTSE", "^GDAXI", "^HSI"]
+
+[benchmarks]
+# Benchmark used for each market when computing excess returns.
+US = "SPY"
+IN = "NIFTYBEES.NS"
+default = "SPY"
+
+[macro]
+# FRED series ids (keyless CSV endpoint, or api.stlouisfed.org with FRED_API_KEY).
+fred_series = ["DGS10", "DGS2", "DTB3", "T10Y2Y", "VIXCLS", "BAMLH0A0HYM2", "DCOILWTICO", "DEXINUS", "DEXUSEU", "CPIAUCSL", "UNRATE"]
+worldbank_indicators = ["FP.CPI.TOTL.ZG", "NY.GDP.MKTP.KD.ZG"]
+worldbank_countries = ["US", "IN", "CN", "JP", "DE", "GB"]
+
+[forecast]
+horizons = [1, 5, 20, 60, 252]
+primary_horizon = 20
+execution_delay_days = 1        # decision at close t, execution at close t+1
+min_train_obs = 750             # per-model minimum training rows before forecasts are trusted
+quantiles = [0.1, 0.5, 0.9]
+
+[costs]
+# Defaults per asset class; spreads are replaced by a Corwin-Schultz high/low estimate when available.
+commission_bps = { US = 0.5, IN = 3.0, default = 1.0 }
+min_commission = { US = 0.0, IN = 0.0, default = 0.0 }
+half_spread_bps = { etf = 1.0, large_cap = 2.0, india = 5.0, default = 5.0 }
+slippage_bps = 2.0
+impact_coefficient = 0.1        # square-root impact: k * daily_vol * sqrt(order / ADV)
+max_participation = 0.05        # max fraction of 20d average daily dollar volume per trade
+india_stt_bps = 10.0            # securities transaction tax on delivery trades (approximate; verify current rates)
+
+[decision]
+min_net_excess = 0.002          # minimum expected net excess return over the horizon to act
+min_prob_positive = 0.52        # minimum calibrated P(net excess > 0). With realistic skill (rank IC ~0.02-0.08)
+                                # single-name probabilities are compressed toward 50%; magnitude is handled by sizing.
+max_model_disagreement = 0.03   # cross-model std of forecasts above which the ensemble abstains
+min_sign_agreement = 0.6        # fraction of base models agreeing with the ensemble sign
+min_skill_tstat = 1.0           # ensemble abstains entirely unless OOS rank-IC t-stat exceeds this
+kelly_fraction = 0.25
+
+[portfolio]
+risk_aversion = 4.0             # lambda in  E[R - R_b - C] - lambda * Risk
+risk_measure = "variance"       # variance | cvar | drawdown
+max_weight = 0.10
+max_sector_weight = 0.30
+max_turnover = 0.50
+cash_allowed = true
+
+[profiles.conservative]
+risk_aversion = 10.0
+max_weight = 0.07
+max_drawdown = 0.15
+target_vol = 0.08
+max_vol = 0.12
+[profiles.balanced]
+risk_aversion = 4.0
+max_weight = 0.10
+max_drawdown = 0.25
+target_vol = 0.14
+max_vol = 0.20
+[profiles.aggressive]
+risk_aversion = 1.5
+max_weight = 0.15
+max_drawdown = 0.40
+target_vol = 0.22
+max_vol = 0.30
+[profiles.experimental]
+risk_aversion = 0.75
+max_weight = 0.25
+max_drawdown = 0.60
+target_vol = 0.35
+max_vol = 0.50
+simulated_only = true
+
+[backtest]
+rebalance_every = 20
+retrain_every = 126
+train_window = 1260             # trading days (5y); null = expanding
+embargo_days = 5
+final_holdout_fraction = 0.15   # last 15% of dates are locked; see `bigboss backtest --final-holdout`
+initial_capital = 1000000.0
+top_k = 10
+
+[paper]
+initial_cash = 100000.0
+base_currency = "USD"
+max_position_weight = 0.20
+max_order_notional = 50000.0
+daily_loss_limit = 0.05
+
+[live_trading]
+# Live trading is not implemented by any shipped adapter. Even if an adapter is added,
+# every order needs a single-use approval token tied to the exact order.
+enabled = false
+
+[llm]
+provider = "none"               # none | ollama | llamacpp
+model = "llama3.1:8b"
+base_url = "http://localhost:11434"
+timeout_s = 120
+
+[monitoring]
+psi_warn = 0.10
+psi_alert = 0.25
+min_eval_periods_for_promotion = 24   # number of independent rebalance periods

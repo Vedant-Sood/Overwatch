@@ -1,0 +1,13 @@
+# data, caches, models, paper accounts - local only (may contain licensed data)
+data/
+configs/local.toml
+*.duckdb
+*.sqlite
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+frontend/node_modules/
+frontend/dist/
+.env
