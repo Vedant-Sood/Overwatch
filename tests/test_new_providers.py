@@ -81,6 +81,10 @@ def test_fmp_parser():
     assert len(FmpProvider.parse(body)) == 2
     with pytest.raises(ProviderError):
         FmpProvider.parse(json.dumps({"Error Message": "Invalid API KEY."}))
+    fp = FmpProvider(None, api_key=None)
+    assert fp.supports("AAPL")  # may be authenticated by a proxy-injected header
+    fp.disabled_reason = "no credentials"
+    assert not fp.supports("AAPL")
 
 
 def test_news_parsers_and_sentiment():
