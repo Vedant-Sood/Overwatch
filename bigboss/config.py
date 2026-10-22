@@ -73,6 +73,8 @@ class Config:
 
 def market_of(symbol: str) -> str:
     s = symbol.upper()
+    if s.startswith("XA:"):
+        return "XA"
     if s.endswith(".NS") or s.endswith(".BO") or s == "^NSEI":
         return "IN"
     if s.startswith("^"):

@@ -93,3 +93,16 @@ def test_zero_signal_market_shows_no_skill(cfg):
     run = run_walk_forward(ds, 20, ["linear_ridge", "lightgbm"], min_train=500, step=126)
     ics = rank_ic_series(run.oos["mean_ensemble"], run.oos["y"])
     assert abs(ic_tstat(ics, 20)) < 2.5
+
+
+def test_calibrators_ignore_missing_labels():
+    """Real data has gaps: a NaN label must not poison conformal or probability calibration."""
+    from bigboss.models.distribution import ProbabilityCalibrator
+
+    rng = np.random.default_rng(5)
+    y = rng.normal(0, 0.05, 1000)
+    y[::7] = np.nan
+    c = ConformalInterval(0.8).fit(y, np.full(1000, -0.01), np.full(1000, 0.01))
+    assert np.isfinite(c.adjust) and c.adjust > 0
+    p = ProbabilityCalibrator().fit(rng.uniform(0.3, 0.7, 1000), np.where(np.isnan(y), np.nan, y > 0))
+    assert np.isfinite(p.apply(np.array([0.5]))).all()

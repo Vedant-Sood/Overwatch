@@ -43,6 +43,8 @@ class CostModel:
         self.multiplier = multiplier  # used for cost-sensitivity analysis
 
     def _class_key(self, symbol: str, asset_class: str) -> str:
+        if asset_class.startswith("proxy_"):
+            return asset_class
         if market_of(symbol) == "IN":
             return "india" if asset_class == "equity" else "etf"
         if asset_class.endswith("etf"):
@@ -62,7 +64,12 @@ class CostModel:
             hs = max(hs, 0.5 * 0.5 * cs_spread * 1e4)
             note = "spread from Corwin-Schultz estimate (thin liquidity)"
         slip = self.c["slippage_bps"]
-        if np.isnan(adv):
+        if np.isnan(adv) and asset_class.startswith("proxy_"):
+            # Index/FX/rates proxies stand for deep ETF/futures markets: assume a 1% participation for impact.
+            sigma = daily_vol if daily_vol and np.isfinite(daily_vol) else 0.01
+            participation, impact, liquid = np.nan, self.c["impact_coefficient"] * sigma * np.sqrt(0.01) * 1e4, True
+            note = (note + "; " if note else "") + "index proxy: liquidity assumed (trades via liquid ETF/futures)"
+        elif np.isnan(adv):
             participation, impact, liquid = np.nan, 25.0, False
             note = (note + "; " if note else "") + "no volume data: impact set to 25bps and liquidity unverified"
         else:

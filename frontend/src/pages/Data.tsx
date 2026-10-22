@@ -7,7 +7,8 @@ export default function DataPage({ ctx }: { ctx: Ctx }) {
   const [st, setSt] = useState<any>(null);
   const [err, setErr] = useState<unknown>(null);
   const [job, setJob] = useState<any>(null);
-  const [groups, setGroups] = useState<string[]>(["us_etfs", "us_equities"]);
+  const [groups, setGroups] = useState<string[]>(["cross_asset"]);
+  const [withNews, setWithNews] = useState(false);
   const [symbols, setSymbols] = useState("");
   const [horizon, setHorizon] = useState(20);
   const load = () => api.get(`/api/data/status?mode=${ctx.mode}`).then(setSt).catch(setErr);
@@ -22,7 +23,7 @@ export default function DataPage({ ctx }: { ctx: Ctx }) {
       ctx.refreshHealth();
     } catch (e) { setErr(e); }
   };
-  const allGroups = ["us_etfs", "us_equities", "india_equities", "india_etfs", "indices"];
+  const allGroups = ["cross_asset", "us_etfs", "us_equities", "india_equities", "india_etfs", "indices"];
 
   return (
     <div>
@@ -34,7 +35,8 @@ export default function DataPage({ ctx }: { ctx: Ctx }) {
           <div className="card">
             <h3>1 · Ingest market data</h3>
             <p className="secondary" style={{ marginTop: 0 }}>Prices from Stooq / Yahoo / Alpha Vantage (in that order), macro from FRED & World Bank,
-              fundamentals and filings from SEC EDGAR. Failures are logged; missing data is never filled with synthetic values.</p>
+              fundamentals and filings from SEC EDGAR. <strong>cross_asset</strong> needs no API key: index, rates and FX proxies derived from FRED.
+              Stock-level prices need a free key (MASSIVE_API_KEY, FMP_API_KEY or ALPHAVANTAGE_API_KEY) unless Stooq/Yahoo are reachable. Failures are logged; missing data is never filled with synthetic values.</p>
             <div className="row">{allGroups.map((g) => (
               <label key={g} className="row" style={{ gap: 4 }}>
                 <input type="checkbox" checked={groups.includes(g)} onChange={(e) => setGroups(e.target.checked ? [...groups, g] : groups.filter((x) => x !== g))} />{g}
@@ -44,7 +46,8 @@ export default function DataPage({ ctx }: { ctx: Ctx }) {
               <input value={symbols} onChange={(e) => setSymbols(e.target.value)} placeholder="AAPL MSFT RELIANCE.NS" />
             </label>
             <div className="row" style={{ marginTop: 10 }}>
-              <button className="btn primary" disabled={job?.status === "running"} onClick={() => run("/api/jobs/ingest", symbols.trim() ? { symbols: symbols.trim().split(/\s+/) } : { groups })}>Run ingestion</button>
+              <button className="btn primary" disabled={job?.status === "running"} onClick={() => run("/api/jobs/ingest", symbols.trim() ? { symbols: symbols.trim().split(/\s+/), news: withNews } : { groups, news: withNews })}>Run ingestion</button>
+              <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={withNews} onChange={(e) => setWithNews(e.target.checked)} />headlines (GDELT, ~5 s per symbol)</label>
             </div>
           </div>
         ) : (
@@ -94,7 +97,7 @@ export default function DataPage({ ctx }: { ctx: Ctx }) {
             <div className="card"><h3>Macro & fundamentals</h3>
               <Table rows={st.macro} cols={[{ key: "series_id", label: "Series", left: true }, { key: "last_date", label: "Last" }, { key: "n", label: "Obs" }, { key: "source", label: "Source" }]} maxHeight={200} />
               <Table rows={st.fundamentals} cols={[{ key: "symbol", label: "Symbol", left: true }, { key: "metrics", label: "Metrics" }, { key: "last_filing", label: "Last filing" }]} maxHeight={200} />
-              <div className="muted">Filing events stored: {st.n_events}</div>
+              <div className="muted">Filing events stored: {st.n_events} · news headlines stored: {st.n_news}</div>
             </div>
           </div>
           <div className="card"><h3>Ingestion log</h3>

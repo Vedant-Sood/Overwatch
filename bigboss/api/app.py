@@ -89,6 +89,7 @@ class IngestReq(BaseModel):
     prices: bool = True
     macro: bool = True
     sec: bool = True
+    news: bool = False
 
 
 @app.post("/api/jobs/ingest")
@@ -108,6 +109,9 @@ def job_ingest(req: IngestReq):
         if req.sec:
             progress(0.75, "SEC fundamentals and filings")
             out["sec"] = ing.ingest_sec(symbols)
+        if req.news:
+            progress(0.9, "news headlines")
+            out["news"] = ing.ingest_news(symbols)
         if bb.has_data():
             bb.dataset(refresh=True)
         return out
@@ -201,6 +205,11 @@ def research(symbol: str, mode: Mode = "observed"):
 @app.get("/api/events")
 def events(mode: Mode = "observed", symbol: str | None = None, limit: int = 100):
     return svc(mode).events(symbol, limit)
+
+
+@app.get("/api/news")
+def news(mode: Mode = "observed", symbol: str | None = None, limit: int = 60):
+    return svc(mode).news(symbol, limit)
 
 
 @app.get("/api/symbols")

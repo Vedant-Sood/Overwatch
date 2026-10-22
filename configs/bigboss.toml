@@ -10,7 +10,10 @@ data_dir = "data"               # DuckDB store, raw-response cache, model regist
 # stooq      - free, keyless daily OHLCV for US/intl equities, ETFs, indices
 # yahoo      - free chart endpoint; needed for NSE/BSE (.NS/.BO). Personal research use only - read Yahoo's terms.
 # alphavantage - needs a free key in env ALPHAVANTAGE_API_KEY
-price_providers = ["stooq", "yahoo", "alphavantage"]
+# fred_xa    - keyless cross-asset proxies built from FRED (XA:* symbols, see bigboss/data/providers/fred_assets.py)
+# massive    - Massive (formerly Polygon.io) daily aggregates; free key in env MASSIVE_API_KEY
+# fmp        - Financial Modeling Prep end-of-day prices; free key in env FMP_API_KEY
+price_providers = ["fred_xa", "massive", "fmp", "stooq", "yahoo", "alphavantage"]
 history_start = "2005-01-01"
 sec_user_agent = "BigBoss research (set-your-email@example.com)"   # SEC requires a contact UA
 max_staleness_days = 5          # data older than this is flagged STALE in the API and dashboard
@@ -26,12 +29,14 @@ us_equities = ["AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "JPM", "JNJ", "X
 india_equities = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "HINDUNILVR.NS",
                   "ITC.NS", "SBIN.NS", "BHARTIARTL.NS", "LT.NS"]
 india_etfs = ["NIFTYBEES.NS", "BANKBEES.NS", "GOLDBEES.NS"]
+cross_asset = ["XA:NDX", "XA:NIKKEI_USD", "XA:BRENT", "XA:UST10_TR", "XA:UST2_TR", "XA:EUR", "XA:GBP", "XA:JPY", "XA:INR", "XA:EW"]
 indices = ["^SPX", "^NDX", "^DJI", "^NSEI", "^N225", "^FTSE", "^GDAXI", "^HSI"]
 
 [benchmarks]
 # Benchmark used for each market when computing excess returns.
 US = "SPY"
 IN = "NIFTYBEES.NS"
+XA = "XA:EW"
 default = "SPY"
 
 [macro]
@@ -51,7 +56,7 @@ quantiles = [0.1, 0.5, 0.9]
 # Defaults per asset class; spreads are replaced by a Corwin-Schultz high/low estimate when available.
 commission_bps = { US = 0.5, IN = 3.0, default = 1.0 }
 min_commission = { US = 0.0, IN = 0.0, default = 0.0 }
-half_spread_bps = { etf = 1.0, large_cap = 2.0, india = 5.0, default = 5.0 }
+half_spread_bps = { etf = 1.0, large_cap = 2.0, india = 5.0, default = 5.0, proxy_equity = 1.0, proxy_commodity = 3.0, proxy_rates = 1.0, proxy_fx = 0.5, proxy_benchmark = 1.0 }
 slippage_bps = 2.0
 impact_coefficient = 0.1        # square-root impact: k * daily_vol * sqrt(order / ADV)
 max_participation = 0.05        # max fraction of 20d average daily dollar volume per trade

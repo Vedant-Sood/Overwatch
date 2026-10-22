@@ -47,7 +47,8 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 # Set a contact e-mail for SEC EDGAR (required by SEC fair-access policy)
 cp configs/bigboss.toml configs/local.toml   # then edit [data].sec_user_agent
 
-bigboss ingest --groups us_etfs us_equities   # real data: Stooq/Yahoo prices, FRED/World Bank macro, SEC fundamentals+filings
+bigboss ingest --groups cross_asset --news     # keyless real data: FRED cross-asset proxies + macro + GDELT headlines
+bigboss ingest --groups us_etfs us_equities   # stock-level data: needs Stooq/Yahoo reachable or MASSIVE_API_KEY / FMP_API_KEY
 bigboss status                                # coverage, freshness, validation issues
 bigboss train --horizon 20                    # walk-forward training, registers a model version, applies promotion gates
 bigboss backtest --horizon 20 --ablation      # baselines vs models, net of costs; cost sensitivity; ablation
@@ -63,7 +64,8 @@ is never written to, or mixed with, the observed-data store.
 
 Frontend development: `cd frontend && npm install && npm run dev` (Vite on :5173 proxies `/api` to :8000).
 
-Optional keys (environment variables, never stored in config): `ALPHAVANTAGE_API_KEY`, `FRED_API_KEY`.
+Optional keys (environment variables, never stored in config): `MASSIVE_API_KEY`, `FMP_API_KEY`, `FINNHUB_API_KEY`,
+`ALPHAVANTAGE_API_KEY`, `FRED_API_KEY`. All have free tiers.
 Optional local LLM: install [Ollama](https://ollama.com), run `ollama pull llama3.1:8b`, and set `[llm] provider = "ollama"`.
 
 ---
@@ -146,14 +148,27 @@ and explicit invalidation conditions.
 
 ## Data sources, licensing and point-in-time integrity
 
-| Source | Used for | Notes |
-|---|---|---|
-| Stooq (`stooq.com`) | daily OHLCV for US equities/ETFs and major indices | keyless; adjusted prices; check Stooq terms before redistribution |
-| Yahoo chart endpoint | fallback; **NSE/BSE** (`.NS`/`.BO`) | unofficial; Yahoo terms restrict use to personal, non-commercial purposes |
-| Alpha Vantage | optional fallback (`ALPHAVANTAGE_API_KEY`) | free `TIME_SERIES_DAILY` is **unadjusted**; such data is flagged |
-| FRED | rates, spreads, VIX, oil, FX, CPI, unemployment | some series carry third-party copyright (ICE, S&P) |
-| World Bank | annual CPI inflation and GDP growth per country | CC BY 4.0 |
-| SEC EDGAR | XBRL fundamentals and filing events | public domain; requires a contact User-Agent; ≤10 req/s |
+| Source | Key? | Used for | Notes |
+|---|---|---|---|
+| FRED (`fred.stlouisfed.org`) | no (CSV) / `FRED_API_KEY` (API) | macro: rates, VIX, spreads, oil, FX, CPI, unemployment; **cross-asset proxies** (`XA:*`) | some series carry third-party copyright (ICE, S&P, Nikkei); ICE indices on FRED now cover only ~3 years |
+| Treasury Fiscal Data | no | average interest rates on marketable Treasury debt (monthly) | US public domain |
+| World Bank | no | annual CPI inflation and GDP growth per country | CC BY 4.0 |
+| SEC EDGAR | no (contact UA) | XBRL fundamentals and filing events | public domain; ≤10 req/s |
+| GDELT DOC 2.0 | no | recent news headlines (research/agents only, not model input) | ~1 request per 5 s; free/open, cite GDELT |
+| Massive (formerly Polygon.io) | `MASSIVE_API_KEY` | daily OHLCV for US stocks/ETFs | free tier ≈ 2 years history, 5 calls/min; split-adjusted only |
+| Financial Modeling Prep | `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
+| Finnhub | `FINNHUB_API_KEY` | company news (preferred over GDELT for US tickers when set) | free tier for personal use |
+| Alpha Vantage | `ALPHAVANTAGE_API_KEY` | fallback daily prices | free `TIME_SERIES_DAILY` is **unadjusted**; flagged |
+| Stooq / Yahoo chart | no | daily OHLCV incl. NSE/BSE (`.NS`/`.BO`) via Yahoo | used only where reachable; Yahoo terms restrict to personal use |
+
+Not integrated (documented decision): **BLS** (needs a key from shared IPs; FRED mirrors the BLS series used),
+**RBI DBIE** (JavaScript-only portal, no documented data API) and **SEBI** (no data API). Scraping them is out of scope.
+
+**Cross-asset proxies (`XA:*`, keyless).** `bigboss ingest --groups cross_asset` builds nine return series from FRED
+(Nasdaq-100, Nikkei 225 in USD, Brent, 10y and 2y Treasury total return re-priced from constant-maturity yields, and
+EUR/GBP/JPY/INR vs USD) plus `XA:EW`, an equal-weight daily-rebalanced benchmark basket. They are **proxies**: equity
+indices exclude dividends, Brent is spot (no futures roll), FX excludes interest carry, and there is no volume (they are
+costed as liquid ETF/futures exposures). Each limitation is stored in the `adjustment` column and shown in the dashboard.
 
 * **Licensing.** Raw data and caches live in `data/` (git-ignored) and are never redistributed by this repo. Public API
   access does not automatically grant machine-learning or redistribution rights. Check each provider's terms for your use.

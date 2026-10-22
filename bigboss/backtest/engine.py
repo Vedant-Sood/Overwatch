@@ -85,6 +85,7 @@ def simulate(name: str, md: MarketData, target_fn: TargetFn, sim: SimConfig, cos
     assets = list(adj.columns)
     base_bps = pd.Series({s: cost_model.base_bps(s, str(md.meta.loc[s, "asset_class"]) if s in md.meta.index else "equity") for s in assets})
 
+    liquid_proxies = [s for s in assets if s in md.meta.index and str(md.meta.loc[s, "asset_class"]).startswith("proxy_")]
     hold = pd.Series(0.0, index=assets)
     cash = sim.initial_capital
     pending: dict[pd.Timestamp, pd.Series] = {}
@@ -121,6 +122,7 @@ def simulate(name: str, md: MarketData, target_fn: TargetFn, sim: SimConfig, cos
             # that risk can always be reduced.
             cap = (sim.max_participation * adv.loc[d]).reindex(assets)
             cap = cap.where(cap.notna(), 0.0)
+            cap[liquid_proxies] = np.inf  # index proxies: assumed tradable via liquid ETF/futures
             trade = trade.clip(lower=-np.maximum(cap, np.where(trade < 0, hold.abs(), 0)), upper=cap)
             nz = trade.abs() > 1e-6
             if nz.any():

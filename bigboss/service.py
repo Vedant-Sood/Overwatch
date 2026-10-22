@@ -100,7 +100,8 @@ class BigBoss:
         log = self.store.query("SELECT * FROM ingestion_log ORDER BY ts DESC LIMIT 200")
         macro = self.store.query("SELECT series_id, MAX(date) AS last_date, COUNT(*) AS n, ANY_VALUE(source) AS source FROM macro GROUP BY series_id ORDER BY series_id")
         fund = self.store.query("SELECT symbol, COUNT(DISTINCT metric) AS metrics, MAX(available) AS last_filing FROM fundamentals GROUP BY symbol ORDER BY symbol")
-        return _clean({"data_mode": self.mode, "prices": fr, "validation_issues": issues, "ingestion_log": log,
+        n_news = int(self.store.query("SELECT COUNT(*) AS n FROM news")["n"].iloc[0])
+        return _clean({"data_mode": self.mode, "prices": fr, "validation_issues": issues, "ingestion_log": log, "n_news": n_news,
                        "macro": macro, "fundamentals": fund, "n_events": int(self.store.query("SELECT COUNT(*) AS n FROM events")["n"].iloc[0])})
 
     # ---------------- market intelligence ----------------
@@ -275,6 +276,7 @@ class BigBoss:
         fund = self.store.fundamentals(symbol)
         out["valuation"] = valuation_profile(fund, float(p["close"].iloc[-1]), p["date"].iloc[-1]) if not fund.empty else {"available": False, "reason": "no SEC fundamentals (non-US, ETF, or not ingested)"}
         out["events"] = self.events(symbol)
+        out["news"] = self.news(symbol)
         return _clean(out)
 
     def events(self, symbol: str | None = None, limit: int = 50) -> dict:
@@ -287,6 +289,16 @@ class BigBoss:
         study = ev_model.event_study(evs, adj, bmap, as_of)
         scored = ev_model.score_events(evs if symbol is None else evs[evs["symbol"] == symbol], study, as_of)
         return _clean({"as_of": as_of, "events": scored.head(limit), "event_study": study})
+
+    def news(self, symbol: str | None = None, limit: int = 60) -> dict:
+        n = self.store.news(symbol, limit)
+        if n.empty:
+            return {"items": [], "note": "no news ingested (run ingestion with news enabled)"}
+        recent = n[pd.to_datetime(n["published_at"]) >= pd.Timestamp.now() - pd.Timedelta(days=30)]
+        return _clean({"items": n, "n_30d": int(len(recent)),
+                       "mean_sentiment_30d": float(recent["sentiment"].mean()) if len(recent) else None,
+                       "share_major_wires_30d": float((recent["credibility"] == "major_newswire").mean()) if len(recent) else None,
+                       "method": "headline lexicon sentiment in [-1, 1]; weak signal, not used by forecasting models"})
 
     # ---------------- portfolio ----------------
     def propose_portfolio(self, profile: str = "balanced", capital: float | None = None, holdings: dict[str, float] | None = None,

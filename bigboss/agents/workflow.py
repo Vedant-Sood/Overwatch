@@ -191,10 +191,21 @@ def quant_researcher(tb: Toolbox, symbol: str, research: dict | None) -> AgentRe
 
 def news_intelligence(tb: Toolbox, symbol: str, research: dict | None) -> AgentReport:
     r = AgentReport(agent="news_intelligence")
+    nw = (research or {}).get("news") or {}
+    items = nw.get("items") or []
+    if items:
+        major = [i for i in items if i.get("credibility") == "major_newswire"]
+        r.findings.append(Finding(statement=f"{nw.get('n_30d', 0)} headlines in 30 days; mean headline sentiment "
+                                            f"{(nw.get('mean_sentiment_30d') or 0):+.2f} (lexicon, weak signal); "
+                                            f"{(nw.get('share_major_wires_30d') or 0):.0%} from major newswires",
+                                  value=nw.get("mean_sentiment_30d"), source=f"{items[0]['provider']} news", as_of=str(items[0]["published_at"])))
+        for i in (major or items)[:3]:
+            r.findings.append(Finding(statement=f"Headline ({i['source_domain']}, {i['published_at']}): {i['title'][:160]}",
+                                      value=i.get("sentiment"), source=i["url"], as_of=str(i["published_at"])))
     ev = (research or {}).get("events") or {}
     rows = ev.get("events") or []
     if not rows:
-        r.status = "degraded"
+        r.status = "degraded" if not items else "ok"
         r.warnings.append(f"No filing events for {symbol} (SEC events cover US registrants only).")
         return r
     fresh = [e for e in rows if not e.get("stale")]

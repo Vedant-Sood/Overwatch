@@ -55,7 +55,8 @@ class ConformalInterval:
         self.adjust = 0.0
 
     def fit(self, y, q_lo, q_hi) -> "ConformalInterval":
-        scores = np.maximum(np.asarray(q_lo) - np.asarray(y), np.asarray(y) - np.asarray(q_hi))
+        scores = np.maximum(np.asarray(q_lo, float) - np.asarray(y, float), np.asarray(y, float) - np.asarray(q_hi, float))
+        scores = scores[np.isfinite(scores)]  # missing labels (data gaps) carry no information
         n = len(scores)
         if n < 30:
             self.adjust = 0.0
@@ -78,7 +79,9 @@ class ProbabilityCalibrator:
         self.iso: IsotonicRegression | None = None
 
     def fit(self, p_raw, outcome) -> "ProbabilityCalibrator":
-        p_raw, outcome = np.asarray(p_raw), np.asarray(outcome).astype(float)
+        p_raw, outcome = np.asarray(p_raw, float), np.asarray(outcome).astype(float)
+        ok = np.isfinite(p_raw) & np.isfinite(outcome)
+        p_raw, outcome = p_raw[ok], outcome[ok]
         if len(p_raw) >= 200 and 0 < outcome.mean() < 1:
             self.iso = IsotonicRegression(y_min=0.01, y_max=0.99, out_of_bounds="clip").fit(p_raw, outcome)
         return self

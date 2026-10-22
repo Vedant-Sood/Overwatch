@@ -130,7 +130,7 @@ def run_walk_forward(
         ens = StackingEnsemble(members, min_oos_rows=max(500, 20 * len(set(te.index.get_level_values("symbol")))))
         known = None
         if oos_so_far is not None:
-            known = oos_so_far[oos_so_far["label_end"] < fold.test_start]
+            known = oos_so_far[(oos_so_far["label_end"] < fold.test_start) & oos_so_far["y"].notna()]
             ens.fit(known)
         preds = {m: pd.DataFrame({c: out[f"{c}_{m}"].to_numpy() for c in ("mean", "q10", "q50", "q90")}) for m in members}
         comb = ens.combine(preds)

@@ -108,6 +108,17 @@ export default function ResearchPage({ ctx }: { ctx: Ctx }) {
             <table><tbody>{Object.entries(f).map(([k, v]: any) => <tr key={k}><td>{k}</td><td>{v == null ? "–" : Math.abs(v) < 10 ? v.toFixed(4) : num(v, 1)}</td></tr>)}</tbody></table></div>)}</div>
         </div>}
         <div className="card" style={{ marginTop: 14 }}>
+          <h3>Recent news headlines <ModeBadge mode={ctx.mode} /> <span className="muted" style={{ fontWeight: 400 }}>
+            {d.news?.items?.length ? `${d.news.n_30d} in 30 days · mean headline sentiment ${d.news.mean_sentiment_30d != null ? d.news.mean_sentiment_30d.toFixed(2) : "–"} (lexicon, weak signal, not a model input)` : ""}</span></h3>
+          {!d.news?.items?.length ? <div className="muted">{d.news?.note || "No headlines."}</div> :
+            <Table rows={d.news.items} maxHeight={300} cols={[
+              { key: "published_at", label: "Published (ET)", left: true }, { key: "source_domain", label: "Source", left: true },
+              { key: "credibility", label: "Credibility", left: true },
+              { key: "sentiment", label: "Sentiment", render: (n) => <span className={signCls(n.sentiment)}>{n.sentiment?.toFixed(2)}</span> },
+              { key: "title", label: "Headline", left: true, render: (n) => <a href={n.url} target="_blank" rel="noreferrer" style={{ whiteSpace: "normal" }}>{n.title}</a> },
+            ]} />}
+        </div>
+        <div className="card" style={{ marginTop: 14 }}>
           <h3>Filings & events (SEC EDGAR) <ModeBadge mode={ctx.mode} /></h3>
           {d.events?.note && <div className="muted">{d.events.note}</div>}
           <Table rows={d.events?.events || []} cols={[
