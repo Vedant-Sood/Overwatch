@@ -38,6 +38,7 @@ class DecisionContext:
     regime: dict | None = None
     as_of: str | None = None
     data_mode: str = "OBSERVED"
+    research_only: bool = False      # model failed promotion gates: show forecasts, never actionable decisions
 
 
 def evaluate(cands: pd.DataFrame, cfg: Config, ctx: DecisionContext, cost_model: CostModel | None = None,
@@ -89,7 +90,7 @@ def evaluate(cands: pd.DataFrame, cfg: Config, ctx: DecisionContext, cost_model:
                 mte.append(np.nan)
         out["te_per_1pct"] = mte
 
-    skill_ok = ctx.skill_t >= d.get("min_skill_tstat", 1.0)
+    skill_ok = ctx.skill_t >= d.get("min_skill_tstat", 1.0) and not ctx.research_only
     out["abstain"] = abstain_mask(out, d["max_model_disagreement"], d.get("min_sign_agreement", 0.6), skill_ok,
                                   out.get("feature_coverage"))
     # sizing: fractional Kelly on net edge, capped by max weight and by liquidity
@@ -145,6 +146,8 @@ def build_thesis(symbol: str, r: pd.Series, ctx: DecisionContext, cfg: Config) -
         evidence.append("Largest LightGBM feature contributions: " + ", ".join(f"{k} ({v:+.4f})" for k, v in r["top_drivers"]))
     evidence.append(f"Out-of-sample ensemble rank-IC t-stat: {ctx.skill_t:.2f} (gate: {cfg.get('decision.min_skill_tstat', 1.0)}).")
     counter = []
+    if ctx.research_only:
+        counter.append("This model version has NOT passed the promotion gates (including the net-of-cost economic test); research only.")
     if r["q10"] < 0 < r["q90"]:
         counter.append(f"The 80% interval spans both gains and losses; 10th percentile excess is {_pct(r['q10'])}.")
     if np.isfinite(r.get("cost_share_of_edge", np.nan)) and r.get("cost_share_of_edge", 0) > 0.3:

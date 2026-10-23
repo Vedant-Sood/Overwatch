@@ -69,7 +69,10 @@ def test_massive_parser():
     assert df["close"].iloc[0] == 185.64
     with pytest.raises(ProviderError):
         MassiveProvider.parse(json.dumps({"status": "ERROR", "error": "API Key was not provided"}))
-    assert not MassiveProvider(None, api_key=None).supports("AAPL")
+    mp = MassiveProvider(None, api_key=None)
+    assert mp.supports("AAPL")  # a proxy-injected network secret may authenticate requests without a visible key
+    mp.disabled_reason = "no credentials"
+    assert not mp.supports("AAPL") and not MassiveProvider(None, api_key="k").supports("XA:NDX")
 
 
 def test_fmp_parser():
@@ -78,6 +81,13 @@ def test_fmp_parser():
     assert len(FmpProvider.parse(body)) == 2
     with pytest.raises(ProviderError):
         FmpProvider.parse(json.dumps({"Error Message": "Invalid API KEY."}))
+    adj = FmpProvider.parse_dividend_adjusted(json.dumps([{"symbol": "AAPL", "date": "2016-01-06", "adjOpen": 22.6, "adjHigh": 23.0,
+                                                            "adjLow": 22.4, "adjClose": 22.64, "volume": 273829600}]))
+    assert adj["adjClose"].iloc[0] == 22.64
+    fp = FmpProvider(None, api_key=None)
+    assert fp.supports("AAPL")  # may be authenticated by a proxy-injected header
+    fp.disabled_reason = "no credentials"
+    assert not fp.supports("AAPL")
 
 
 def test_news_parsers_and_sentiment():
@@ -102,3 +112,115 @@ def test_proxy_costs_assume_liquidity(cfg):
     assert e.liquidity_ok and e.half_spread_bps == cfg.get("costs.half_spread_bps")["proxy_equity"] and "proxy" in e.note
     e2 = CostModel(cfg).estimate("ABC", "equity", 1e6, float("nan"), 0.012)
     assert not e2.liquidity_ok  # ordinary securities with unknown volume stay unverified
+
+
+def test_point_in_time_universe_uses_only_past_liquidity():
+    from bigboss.data.providers.massive_market import point_in_time_universe
+
+    dates = pd.bdate_range("2025-01-01", periods=120)
+    rows = []
+    for i, d in enumerate(dates):
+        for s, dv in (("BIG", 1e9), ("MID", 1e8), ("RISER", 1e5 if i < 100 else 1e10)):
+            rows.append({"symbol": s, "date": d, "close": 50.0, "volume": dv / 50})
+    bars = pd.DataFrame(rows)
+    m = point_in_time_universe(bars, top_n=2, lookback=20, min_history=10)
+    full = m.set_index(["date", "symbol"])
+    # Membership at a date must not change when future bars are removed (no look-ahead).
+    t = dates[90]
+    trunc = point_in_time_universe(bars[bars["date"] <= t], top_n=2, lookback=20, min_history=10).set_index(["date", "symbol"])
+    assert set(full.xs(t, level="date").index) == set(trunc.xs(t, level="date").index) == {"BIG", "MID"}
+    # RISER only enters after its liquidity shows up in the trailing window (shifted by one day).
+    assert "RISER" not in set(full.xs(dates[100], level="date").index)
+    assert "RISER" in set(full.xs(dates[115], level="date").index)
+    # Penny stocks are excluded.
+    cheap = bars.assign(close=np.where(bars["symbol"] == "MID", 2.0, bars["close"]))
+    assert "MID" not in set(point_in_time_universe(cheap, top_n=3, lookback=20, min_history=10)["symbol"])
+
+
+def test_massive_parsers():
+    from bigboss.data.providers.massive_market import MassiveMarket
+    from bigboss.data.providers.news import MassiveNews
+
+    g = MassiveMarket.parse_grouped(json.dumps({"status": "OK", "resultsCount": 1, "results": [
+        {"T": "AAPL", "v": 5e7, "vw": 201.1, "o": 200, "c": 202, "h": 203, "l": 199, "t": 1748894400000, "n": 9e5}]}), pd.Timestamp("2025-06-02"))
+    assert g.loc[0, "symbol"] == "AAPL" and g.loc[0, "close"] == 202 and g.loc[0, "date"] == pd.Timestamp("2025-06-02")
+    with pytest.raises(ProviderError):
+        MassiveMarket.parse_grouped(json.dumps({"status": "NOT_AUTHORIZED", "message": "plan"}), pd.Timestamp("2016-01-04"))
+    n = MassiveNews.parse(json.dumps({"status": "OK", "results": [{
+        "title": "Apple beats estimates", "published_utc": "2026-10-21T14:30:00Z", "article_url": "https://www.reuters.com/a",
+        "description": "", "insights": [{"ticker": "AAPL", "sentiment": "negative", "sentiment_reasoning": "x"}]}]}), "AAPL")
+    assert n[0]["provider_sentiment"] == -1.0 and n[0]["source_domain"] == "reuters.com"
+
+
+def test_credentials_are_redacted_from_errors():
+    from bigboss.data.providers.base import redact
+
+    msg = "Client error '402' for url 'https://financialmodelingprep.com/x?symbol=QQQ&apikey=S3CRET&from=2005-01-01'"
+    assert "S3CRET" not in redact(msg) and "apikey=***" in redact(msg)
+    assert "tok" not in redact("https://finnhub.io/api?token=tok123&x=1").split("token=")[1][:3]
+
+
+def test_fmp_fetches_long_history_in_windows():
+    p = FmpProvider(None, api_key="k")
+    w = p._windows("2005-01-01")
+    assert w[0]["from"] == "2005-01-01" and len(w) >= 2
+    assert all(pd.Timestamp(a["to"]) < pd.Timestamp(b["from"]) for a, b in zip(w, w[1:]))  # contiguous, no overlap
+
+
+def test_common_stock_filter_checks_each_record_type():
+    """Massive pagination can drop the type filter; ETFs on later pages must not be treated as common stock."""
+    from bigboss.data.providers.massive_market import MassiveMarket
+
+    pages = {
+        "https://api.massive.com/v3/reference/tickers": json.dumps({"results": [
+            {"ticker": "AAPL", "type": "CS", "cik": "0000320193"}], "next_url": "https://api.massive.com/v3/reference/tickers?cursor=x"}),
+        "https://api.massive.com/v3/reference/tickers?cursor=x": json.dumps({"results": [
+            {"ticker": "AAPU", "type": "ETF", "cik": "0001424958"}, {"ticker": "MSFT", "type": "CS", "cik": "0000789019"}]}),
+    }
+
+    class Http:
+        def get(self, url, params=None, max_age_s=0):
+            return pages[url], None
+
+    cs = MassiveMarket(Http()).common_stocks()
+    assert set(cs) == {"AAPL", "MSFT"}
+
+
+def test_yfinance_history_normalization():
+    from bigboss.data.providers.yfinance_provider import frame_from_history
+
+    idx = pd.DatetimeIndex(["2024-01-02 00:00", "2024-01-03 00:00", "2024-01-03 00:00"], tz="Asia/Kolkata")
+    h = pd.DataFrame({"Open": [10, 11, 11], "High": [11, 12, 12], "Low": [9, 10, 10], "Close": [10.5, 11.5, 11.6],
+                      "Adj Close": [10.0, 11.0, 11.1], "Volume": [100, 200, 200], "Dividends": [0, 0, 0], "Stock Splits": [0, 0, 0]}, index=idx)
+    df = frame_from_history(h, pd.Timestamp("2024-01-04"))
+    assert list(df["date"]) == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]  # exchange-local dates, de-duplicated
+    assert df["adj_close"].iloc[-1] == 11.1 and df["close"].iloc[-1] == 11.6
+    assert (df["adjustment"] == "adj_close_split_and_dividend").all()
+    with pytest.raises(ProviderError):
+        frame_from_history(pd.DataFrame(), pd.Timestamp("2024-01-04"))
+
+
+def test_nse_normalization_keeps_eq_series_and_fixes_dates():
+    from bigboss.data.providers.nse import normalize_nse_frame
+
+    raw = pd.DataFrame({"DATE": pd.to_datetime(["2024-01-01 18:30", "2024-01-01 18:30", "2024-01-02 18:30"]),
+                        "SERIES": ["EQ", "BL", "EQ"], "OPEN": [100, 90, 101], "HIGH": [102, 90, 103], "LOW": [99, 90, 100],
+                        "CLOSE": [101, 90, 102], "VOLUME": [1e6, 5e4, 1.1e6]})
+    df = normalize_nse_frame(raw, pd.Timestamp("2024-01-04"))
+    assert list(df["date"]) == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]  # IST session dates
+    assert list(df["close"]) == [101, 102]  # block-deal (BL) row dropped
+    assert (df["adjustment"] == "UNADJUSTED_EXCHANGE_RAW").all()
+
+
+def test_crosscheck_separates_corporate_actions_from_adjustment_errors():
+    from bigboss.data.crosscheck import compare_returns
+
+    d = pd.bdate_range("2024-01-01", periods=60)
+    raw = 100 * np.cumprod(1 + np.r_[0, np.full(59, 0.001)])
+    raw[30:] /= 2  # 1:1 bonus: raw halves, adjusted continuous
+    adj = 100 * np.cumprod(1 + np.r_[0, np.full(59, 0.001)])
+    adj[45:] *= 1.3  # bogus 30% jump in the adjusted series on an ordinary day
+    raw[50:] *= 0.96  # 4% dividend ex-date: raw drops, adjusted correctly continuous
+    r = compare_returns(pd.DataFrame({"date": d, "adj_close": adj}), pd.DataFrame({"date": d, "close": raw}))
+    assert r["n_corporate_action_days"] == 1 and r["n_payout_like_days"] == 1
+    assert r["n_suspicious_days"] == 1 and r["suspicious"]["date"].iloc[0] == d[45]

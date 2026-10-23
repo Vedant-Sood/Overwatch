@@ -35,6 +35,8 @@ DEFAULT_GATES = {
     "max_brier_excess": 0.005,       # Brier score may not exceed climatology by more than this
     "min_eval_periods": 24,          # independent horizon-length periods in the OOS record
     "challenger_min_ic_diff_t": 0.0, # paired t-stat of (challenger IC - champion IC) on common dates
+    "min_net_ir": 0.0,               # OOS net-of-cost information ratio of the gated strategy (the actual objective)...
+    "min_excess_psr": 0.90,          # ...AND >= 90% probability (PSR) that its true net excess Sharpe is positive
 }
 
 
@@ -112,6 +114,7 @@ class Registry:
             "n_eval_periods": int(len(ics) / max(horizon, 1)), "forecast_quality": fq, "folds": run.folds,
             "conformal_adjust": conf.adjust,
         }
+        meta["economic"] = self.economic_check(run, ds, horizon)
         meta["gates"] = self.evaluate_gates(meta)
         (d / "meta.json").write_text(json.dumps(meta, indent=1, default=_json_default))
         st = self.state()
@@ -137,9 +140,74 @@ class Registry:
                       "pass": ens.get("brier") is not None and ens["brier"] <= ens["brier_climatology"] + g["max_brier_excess"]},
             "sample_size": {"value": meta["n_eval_periods"], "threshold": g["min_eval_periods"], "pass": meta["n_eval_periods"] >= g["min_eval_periods"]},
         }
+        econ = meta.get("economic") or {}
+        ir, psr = econ.get("information_ratio"), econ.get("psr_excess")
+        checks["economic_value"] = {"value": ir, "threshold": g["min_net_ir"], "psr_excess": psr, "min_psr": g["min_excess_psr"],
+                                    "ann_excess_return": econ.get("ann_excess_return"), "ir_ci90": econ.get("ir_ci90"),
+                                    "pass": ir is not None and psr is not None and ir > g["min_net_ir"] and psr >= g["min_excess_psr"]}
         if champion_meta is not None:
             checks["beats_champion"] = self._paired_ic_test(meta, champion_meta, g["challenger_min_ic_diff_t"])
         return {"passed": all(c["pass"] for c in checks.values()), "checks": checks}
+
+    def economic_check(self, run: ForecastRun, ds: Dataset, horizon: int) -> dict:
+        """Backtest the gated ensemble on the walk-forward OOS forecasts, net of costs (the platform's real objective)."""
+        from bigboss.backtest.engine import MarketData, SimConfig, finalize, simulate
+        from bigboss.backtest.experiment import _primary_benchmark, model_preds
+        from bigboss.backtest.strategies import model_strategy
+        from bigboss.costs import CostModel
+        from bigboss.data.store import Store
+
+        store = Store.for_mode(self.cfg.data_dir, self.mode)
+        bt, pf, dec = self.cfg.section("backtest"), self.cfg.section("portfolio"), self.cfg.section("decision")
+        bench = _primary_benchmark(ds)
+        meta = store.symbols()
+        prices = store.prices(ds.tradeable + [bench])
+        md = MarketData.from_prices(prices, meta, bench)
+        dates = run.oos.index.get_level_values("date").unique().sort_values()
+        sim = SimConfig(rebalance_every=bt["rebalance_every"], delay=self.cfg.get("forecast.execution_delay_days", 1),
+                        initial_capital=bt["initial_capital"], max_participation=self.cfg.get("costs.max_participation", 0.05),
+                        start=dates[0], end=dates[-1])
+        gate = {"max_disagreement": dec["max_model_disagreement"], "min_sign_agreement": dec.get("min_sign_agreement", 0.6),
+                "min_skill_tstat": dec.get("min_skill_tstat", 1.0)}
+        k = min(bt["top_k"], max(3, len(ds.tradeable) // 3))
+        fn = model_strategy(md, model_preds(run, "ensemble"), CostModel(self.cfg), horizon, gate=gate,
+                            risk_aversion=pf["risk_aversion"], max_weight=pf["max_weight"], max_sector=pf["max_sector_weight"],
+                            max_turnover=pf.get("max_turnover"), top_k=k, sectors=meta.set_index("symbol")["sector"].to_dict())
+        res = finalize(simulate("ensemble_gated", md, fn, sim, CostModel(self.cfg)), md, skip_days=sim.delay)
+        keys = ("information_ratio", "ir_ci90", "ann_excess_return", "sharpe", "max_drawdown", "ann_turnover", "ann_cost_drag", "psr_excess")
+        return {k_: res.summary.get(k_) for k_ in keys} | {"strategy": "ensemble_gated", "start": str(dates[0].date()), "end": str(dates[-1].date())}
+
+    def reevaluate(self, vid: str) -> dict:
+        """Re-run all gates (e.g. after gate definitions change) on a version's stored OOS record.
+
+        A champion that no longer passes is demoted, and the demotion is recorded in the registry history.
+        """
+        from types import SimpleNamespace
+
+        from bigboss.data.store import Store
+        from bigboss.features.dataset import build_dataset
+
+        meta = self.meta(vid)
+        ds = build_dataset(Store.for_mode(self.cfg.data_dir, self.mode), self.cfg)
+        meta["economic"] = self.economic_check(SimpleNamespace(oos=self.oos(vid)), ds, meta["horizon"])
+        meta["gates"] = self.evaluate_gates(meta)
+        (self.root / vid / "meta.json").write_text(json.dumps(meta, indent=1, default=_json_default))
+        st = self.state()
+        h = str(meta["horizon"])
+        now = datetime.now(timezone.utc).isoformat()
+        st["history"].append({"ts": now, "event": "re-evaluated", "version": vid, "horizon": meta["horizon"], "gates_passed": meta["gates"]["passed"]})
+        demoted = False
+        if st["champions"].get(h) == vid and not meta["gates"]["passed"]:
+            del st["champions"][h]
+            demoted = True
+            failed = [k for k, c in meta["gates"]["checks"].items() if not c["pass"]]
+            st["history"].append({"ts": now, "event": f"demoted: failed re-evaluation ({', '.join(failed)})", "version": vid, "horizon": meta["horizon"]})
+        self._save_state(st)
+        return {"version": vid, "gates": meta["gates"], "economic": meta["economic"], "demoted": demoted}
+
+    def latest(self, horizon: int) -> str | None:
+        vs = [v for v in self.versions() if v["horizon"] == horizon]
+        return vs[0]["version"] if vs else None
 
     def _paired_ic_test(self, meta: dict, champ: dict, thresh: float) -> dict:
         a = pd.read_parquet(self.root / meta["version"] / "oos.parquet").set_index(["date", "symbol"])
@@ -193,7 +261,7 @@ class Registry:
         with open(self.root / vid / "models.pkl", "rb") as f:
             art = pickle.load(f)
         frame = ds.frame
-        date = date or frame.index.get_level_values("date").max()
+        date = date or latest_complete_date(ds)
         rows = frame.loc[frame.index.get_level_values("date") == date]
         missing = [c for c in meta["feature_cols"] if c not in rows.columns]
         for c in missing:
@@ -226,6 +294,20 @@ class Registry:
 
     def oos(self, vid: str) -> pd.DataFrame:
         return pd.read_parquet(self.root / vid / "oos.parquet").set_index(["date", "symbol"])
+
+
+def latest_complete_date(ds: Dataset, min_fraction: float = 0.8) -> pd.Timestamp:
+    """Latest date on which at least `min_fraction` of the universe has a fresh observation.
+
+    Sources publish on different lags (e.g. Fed FX rates arrive ~weekly), so the very last calendar date can hold a
+    nearly empty cross-section. Forecasting "as of" such a date would rank one asset against stale or missing ones.
+    """
+    obs = ds.frame["ret_1"].notna().groupby(level="date").sum() if "ret_1" in ds.frame else None
+    dates = ds.frame.index.get_level_values("date").unique().sort_values()
+    if obs is None or obs.empty:
+        return dates.max()
+    ok = obs[obs >= min_fraction * len(ds.tradeable)]
+    return ok.index.max() if len(ok) else dates.max()
 
 
 def _fingerprint(ds: Dataset) -> str:

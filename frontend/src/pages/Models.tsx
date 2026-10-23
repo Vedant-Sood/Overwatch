@@ -48,7 +48,8 @@ export default function ModelsPage({ ctx }: { ctx: Ctx }) {
             <Table rows={Object.entries(sel.gates.checks).map(([k, c]: any) => ({ k, ...c }))} cols={[{ key: "k", label: "Gate", left: true },
               { key: "pass", label: "Result", render: (c) => c.pass ? <span className="pos">✓ PASS</span> : <span className="neg">✖ FAIL</span> },
               { key: "value", label: "Value", render: (c) => typeof c.value === "number" ? c.value.toFixed(4) : String(c.value) },
-              { key: "threshold", label: "Requirement", render: (c) => c.band ? `${c.band[0]}–${c.band[1]}` : c.climatology != null ? `≤ ${(c.climatology + 0.005).toFixed(4)}` : c.threshold }]} /></div>
+              { key: "threshold", label: "Requirement", render: (c) => c.band ? `${c.band[0]}–${c.band[1]}` : c.climatology != null ? `≤ ${(c.climatology + 0.005).toFixed(4)}`
+                : c.min_psr != null ? `net IR > ${c.threshold} and P(edge>0) ≥ ${c.min_psr} (now ${c.psr_excess?.toFixed(2)})` : c.threshold }]} /></div>
           <div><strong>Ensemble weights</strong><pre className="mono">{JSON.stringify(sel.ensemble_weights, null, 1)}</pre></div>
         </div>
         <Table rows={sel.forecast_quality} cols={[{ key: "model", label: "Model", left: true }, { key: "rank_ic_mean", label: "Rank IC", render: (r) => r.rank_ic_mean?.toFixed(4) ?? "–" },
@@ -56,9 +57,9 @@ export default function ModelsPage({ ctx }: { ctx: Ctx }) {
           { key: "brier", label: "Brier", render: (r) => r.brier?.toFixed(4) }, { key: "mae", label: "MAE", render: (r) => pct(r.mae, 2) }]} />
       </div>}
       <div className="grid g2" style={{ marginTop: 14 }}>
-        <div className="card"><h3>Rolling 63-day OOS rank IC (primary champion) <DataBadge kind="prediction" /></h3>
+        <div className="card"><h3>Rolling 63-day OOS rank IC ({d.monitored_is_champion ? "champion" : "latest version, research only"}) <DataBadge kind="prediction" /></h3>
           {d.rolling_ic ? <Plot theme={ctx.theme} data={[{ x: d.rolling_ic.dates, y: d.rolling_ic.values, type: "scatter", mode: "lines", line: { width: 2, color: seriesColor(0) }, name: "rolling IC" }]}
-            layout={{ showlegend: false, shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: cssVar("--axis"), width: 1 } }] }} /> : <div className="muted">No champion yet.</div>}
+            layout={{ showlegend: false, shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: cssVar("--axis"), width: 1 } }] }} /> : <div className="muted">No trained model yet.</div>}
         </div>
         <div className="card"><h3>Feature drift (PSI vs training, last 126 days)</h3>
           <Table rows={d.drift || []} maxHeight={320} cols={[{ key: "feature", label: "Feature", left: true }, { key: "kind", label: "Kind", left: true },

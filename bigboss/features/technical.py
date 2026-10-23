@@ -128,4 +128,5 @@ def average_pairwise_corr(lr: pd.DataFrame, window: int) -> pd.Series:
     port = z.mean(axis=1)
     var_port = port.rolling(window, min_periods=window // 2).var()
     # var(mean z) = (1 + (n-1) * rho_bar) / n  ->  rho_bar = (n * var - 1) / (n - 1)
-    return ((n * var_port - 1) / (n - 1)).clip(-1, 1)
+    rho = ((n * var_port - 1) / (n - 1)).clip(-1, 1)
+    return rho.where(n >= 3)  # undefined with fewer than 3 assets trading

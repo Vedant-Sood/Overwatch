@@ -106,3 +106,16 @@ def test_calibrators_ignore_missing_labels():
     assert np.isfinite(c.adjust) and c.adjust > 0
     p = ProbabilityCalibrator().fit(rng.uniform(0.3, 0.7, 1000), np.where(np.isnan(y), np.nan, y > 0))
     assert np.isfinite(p.apply(np.array([0.5]))).all()
+
+
+def test_latest_complete_date_skips_sparse_trailing_dates():
+    from types import SimpleNamespace
+
+    from bigboss.models.registry import latest_complete_date
+
+    dates = pd.bdate_range("2026-10-12", periods=8)
+    idx = pd.MultiIndex.from_product([dates, list("ABCDE")], names=["date", "symbol"])
+    f = pd.DataFrame({"ret_1": 0.01}, index=idx)
+    f.loc[(dates[-1], ["B", "C", "D", "E"]), "ret_1"] = np.nan  # e.g. FX rates not yet published
+    f.loc[(dates[-2], ["C", "D"]), "ret_1"] = np.nan
+    assert latest_complete_date(SimpleNamespace(frame=f, tradeable=list("ABCDE"))) == dates[-3]

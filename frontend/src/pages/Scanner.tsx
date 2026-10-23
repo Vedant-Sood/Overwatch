@@ -40,7 +40,11 @@ export default function ScannerPage({ ctx }: { ctx: Ctx }) {
       </div>
       <SimBanner mode={ctx.mode} />
       <ErrorBox error={err} hint={<span>Train a model in <a href="#/data">Data & Setup</a>.</span>} />
+      {!d && !err && <div className="muted">Loading forecasts… (the first request after start-up builds the dataset and can take a while)</div>}
       {d && <>
+        {d.research_only && <div className="banner err"><strong>Research only - no deployable model.</strong> {d.research_only_reason}
+          {d.economic_gate && <> Walk-forward net result of the gated strategy: IR {d.economic_gate.information_ratio?.toFixed(2)},
+            annual excess {pct(d.economic_gate.ann_excess_return)}, P(edge &gt; 0) {pct(d.economic_gate.psr_excess, 0)}.</>}</div>}
         <div className="grid g4">
           <Stat label="As of / model" value={d.as_of} sub={d.model_version} />
           <Stat label="OOS skill (rank-IC t-stat)" value={d.skill_t?.toFixed(2)} sub={d.skill_t >= d.skill_gate ? `✓ above gate ${d.skill_gate}` : `✖ below gate ${d.skill_gate} - ensemble abstains`} cls={d.skill_t >= d.skill_gate ? "pos" : "neg"} />

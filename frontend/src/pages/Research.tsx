@@ -53,6 +53,7 @@ export default function ResearchPage({ ctx }: { ctx: Ctx }) {
       <SimBanner mode={ctx.mode} />
       <ErrorBox error={err} />
       {!sym && <div className="muted">Choose a symbol.</div>}
+      {sym && !d && !err && <div className="muted">Loading research for {sym}…</div>}
       {d && <>
         <div className="grid g4">
           <Stat label="Last close" value={num(d.prices.close.at(-1))} sub={`${d.last_date} · ${d.source} · ${d.adjustment}`} />

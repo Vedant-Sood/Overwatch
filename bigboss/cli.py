@@ -9,6 +9,8 @@
   bigboss models [promote VID | rollback --horizon 20 | challenge VID]
   bigboss update                         # daily job: ingest -> forecast -> log predictions -> resolve outcomes
   bigboss schedule --every-hours 24      # run `update` on an interval (or use cron / Task Scheduler)
+  bigboss export-qc --experiment ID --out qc/   # files for an independent QuantConnect LEAN backtest
+  bigboss qc-compare --experiment ID --qc-results result.json
   bigboss serve                          # API + built dashboard on http://127.0.0.1:8000
 Add --synthetic to any research command to use the SYNTHETIC store instead of observed data.
 """
@@ -42,12 +44,22 @@ def cmd_ingest(args):
     out = {}
     if not args.no_prices:
         out["prices"] = ing.ingest_prices(syms)
+    if getattr(args, "massive_market", 0):
+        r = ing.ingest_massive_market(top_n=args.massive_market, extra_symbols=cfg.universe(["us_etfs"]),
+                                      progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+        print(f"massive market: {r}")
+        syms = sorted(store.symbols()["symbol"])  # the point-in-time universe (+ ETFs) now defines the symbol set
     if not args.no_macro:
         out["macro"] = ing.ingest_macro()
     if not args.no_sec:
         out["sec"] = ing.ingest_sec(syms)
     if getattr(args, "news", False):
-        out["news"] = ing.ingest_news(syms)
+        news_syms = syms
+        mem = store.membership()
+        if not mem.empty:  # rate-limited news APIs: the most liquid current members first
+            last = mem[mem["date"] == mem["date"].max()].sort_values("rank")
+            news_syms = list(last["symbol"].head(args.news_limit))
+        out["news"] = ing.ingest_news(news_syms[: args.news_limit])
     for k, v in out.items():
         s = pd.Series(v).value_counts().to_dict()
         print(f"{k}: {s}")
@@ -111,7 +123,7 @@ def cmd_backtest(args):
             print("aborted")
             return
     s = run_experiment(bb.store, bb.cfg, args.horizon, args.models, include_holdout=args.final_holdout, ablation=args.ablation,
-                       ds=bb.dataset(), progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+                       min_train=args.min_train, step=args.step, ds=bb.dataset(), progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
     tab = pd.DataFrame(s["strategies"]).T
     cols = ["ann_return", "ann_excess_return", "sharpe", "sortino", "information_ratio", "max_drawdown", "calmar", "ann_turnover", "ann_cost_drag", "psr_excess", "deflated_sharpe_excess"]
     print(f"\nexperiment {s['id']}  data_mode={s['data_mode']}  OOS {s['oos_start']} -> {s['oos_end']}  universe={s['universe_size']}  strategies tested={s['n_strategies_tested']}")
@@ -150,6 +162,13 @@ def cmd_models(args):
         print(json.dumps(bb.registry.promote(args.version, args.force_reason), indent=1, default=str))
     elif args.action == "rollback":
         print(bb.registry.rollback(args.horizon))
+    elif args.action == "reevaluate":
+        vids = [args.version] if args.version else [m["version"] for m in bb.registry.versions()]
+        for v in vids:
+            r = bb.registry.reevaluate(v)
+            e = r["economic"]
+            print(f"{v}: gates passed={r['gates']['passed']}  net IR={e.get('information_ratio')}  ann excess={e.get('ann_excess_return')}"
+                  f"{'  -> DEMOTED' if r['demoted'] else ''}")
     elif args.action == "challenge":
         print(json.dumps(bb.registry.challenge(args.version), indent=1, default=str))
     else:
@@ -191,6 +210,22 @@ def cmd_serve(args):
     uvicorn.run("bigboss.api.app:app", host=args.host, port=args.port, reload=False)
 
 
+def cmd_export_qc(args):
+    from bigboss.integrations.quantconnect import export_experiment
+
+    m = export_experiment(get_config(), args.experiment, args.out, strategy=args.strategy, model=args.model)
+    print(json.dumps({k: m[k] for k in ("strategy", "oos_start", "oos_end", "n_decision_dates", "n_weight_rows",
+                                        "n_signal_rows", "symbols_skipped_not_on_qc_us_equities", "bigboss_metrics")},
+                     indent=1, default=str))
+    print(f"wrote {args.out}/ (weights.csv, signals.csv, main.py, manifest.json, README.md)")
+
+
+def cmd_qc_compare(args):
+    from bigboss.integrations.quantconnect import compare
+
+    print(json.dumps(compare(get_config(), args.experiment, args.qc_results, strategy=args.strategy), indent=1, default=str))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="bigboss", description="BigBoss investment research platform (research and paper trading only)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -208,7 +243,10 @@ def main(argv=None):
     sp.add_argument("--no-prices", action="store_true")
     sp.add_argument("--no-macro", action="store_true")
     sp.add_argument("--no-sec", action="store_true")
-    sp.add_argument("--news", action="store_true", help="also fetch recent headlines (GDELT keyless, or Finnhub with a key)")
+    sp.add_argument("--news", action="store_true", help="also fetch recent headlines (Finnhub / Massive / GDELT)")
+    sp.add_argument("--news-limit", type=int, default=40, help="max symbols to fetch news for")
+    sp.add_argument("--massive-market", type=int, default=0, metavar="N",
+                    help="whole-market US bars from Massive grouped-daily + point-in-time top-N liquid universe")
     add("status", cmd_status)
     sp = add("demo-data", cmd_demo, synthetic=False)
     sp.add_argument("--n-assets", type=int, default=30)
@@ -224,6 +262,8 @@ def main(argv=None):
     sp.add_argument("--models", nargs="*")
     sp.add_argument("--ablation", action="store_true")
     sp.add_argument("--final-holdout", action="store_true")
+    sp.add_argument("--min-train", type=int, default=None, help="minimum training sessions (default 756)")
+    sp.add_argument("--step", type=int, default=None, help="retrain every N sessions (default backtest.retrain_every)")
     sp = add("scan", cmd_scan)
     sp.add_argument("--horizon", type=int, default=20)
     sp.add_argument("--top", type=int, default=25)
@@ -232,7 +272,7 @@ def main(argv=None):
     sp.add_argument("question")
     sp.add_argument("--symbols", nargs="*")
     sp = add("models", cmd_models)
-    sp.add_argument("action", nargs="?", choices=["list", "promote", "rollback", "challenge"], default="list")
+    sp.add_argument("action", nargs="?", choices=["list", "promote", "rollback", "challenge", "reevaluate"], default="list")
     sp.add_argument("version", nargs="?")
     sp.add_argument("--horizon", type=int, default=20)
     sp.add_argument("--force-reason")
@@ -241,6 +281,15 @@ def main(argv=None):
     sp = add("schedule", cmd_schedule)
     sp.add_argument("--every-hours", type=float, default=24)
     sp.add_argument("--skip-sec", action="store_true")
+    sp = add("export-qc", cmd_export_qc, synthetic=False)
+    sp.add_argument("--experiment", required=True, help="experiment id under <data_dir>/experiments")
+    sp.add_argument("--out", required=True, help="output folder")
+    sp.add_argument("--strategy", default="ensemble_gated", help="strategy whose weights to replay")
+    sp.add_argument("--model", default="ensemble", help="model whose forecasts go into signals.csv")
+    sp = add("qc-compare", cmd_qc_compare, synthetic=False)
+    sp.add_argument("--experiment", required=True)
+    sp.add_argument("--qc-results", required=True, help="QuantConnect backtest result JSON")
+    sp.add_argument("--strategy", default="ensemble_gated")
     sp = add("serve", cmd_serve, synthetic=False)
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)

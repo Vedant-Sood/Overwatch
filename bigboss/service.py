@@ -143,8 +143,14 @@ class BigBoss:
         return out
 
     def _primary_benchmark(self) -> str:
+        """The benchmark most of the stored universe is measured against (e.g. SPY, XA:EW, SYNMKT)."""
         if self.mode == "SYNTHETIC":
             return "SYNMKT"
+        meta = self.store.symbols()
+        if not meta.empty and meta["benchmark"].notna().any():
+            b = meta["benchmark"].dropna().mode()
+            if len(b) and b.iloc[0] in set(meta["symbol"]):
+                return str(b.iloc[0])
         return self.cfg.get("benchmarks.US", "SPY")
 
     def bench_expected(self, horizon: int, bench: str | None = None) -> float:
@@ -161,9 +167,19 @@ class BigBoss:
     def forecast(self, horizon: int | None = None, date: pd.Timestamp | None = None) -> pd.DataFrame:
         h = horizon or self.cfg.get("forecast.primary_horizon", 20)
         vid = self.registry.champion(h)
+        research_only = False
         if vid is None:
-            raise NoModelError(f"no champion model for horizon {h} in {self.mode} mode - run `bigboss train`")
-        return self.registry.predict(vid, self.dataset(), date)
+            vid = self.registry.latest(h)
+            research_only = True
+            if vid is None:
+                raise NoModelError(f"no trained model for horizon {h} in {self.mode} mode - run `bigboss train`")
+        f = self.registry.predict(vid, self.dataset(), date)
+        f.attrs["research_only"] = research_only
+        if research_only:
+            failed = [k for k, c in self.registry.meta(vid)["gates"]["checks"].items() if not c["pass"]]
+            f.attrs["research_only_reason"] = (f"no model version passed the promotion gates for h={h}; showing the latest candidate "
+                                               f"{vid} for research only (failed: {', '.join(failed)}). All actions are INSUFFICIENT_EVIDENCE.")
+        return f
 
     def _liquidity(self, symbols: list[str]) -> pd.DataFrame:
         p = self.store.prices(symbols)
@@ -201,7 +217,9 @@ class BigBoss:
             cov = shrunk_cov(rets)
         except ValueError:
             pass
-        ctx = DecisionContext(h, pv, self.bench_expected(h), f.attrs["skill_t"], regime, str(as_of.date()), self.mode)
+        # A research-only (non-champion) model never produces actionable recommendations.
+        ctx = DecisionContext(h, pv, self.bench_expected(h), f.attrs["skill_t"], regime, str(as_of.date()), self.mode,
+                              research_only=bool(f.attrs.get("research_only")))
         dec = evaluate(cands, self.cfg, ctx, self.costs, cur_w, cov, bench)
         if log:
             log_predictions(self.store, dec, f.attrs["version"], h, as_of)
@@ -213,6 +231,8 @@ class BigBoss:
                 "risk_adjusted_score", "abstain", "thesis", "top_drivers"] + [c for c in dec.columns if c.startswith("mean_")]
         out = dec[[c for c in cols if c in dec.columns]].reset_index().rename(columns={"index": "symbol"})
         return _clean({"data_mode": self.mode, "as_of": as_of, "horizon": h, "model_version": f.attrs["version"],
+                       "research_only": bool(f.attrs.get("research_only")), "research_only_reason": f.attrs.get("research_only_reason"),
+                       "economic_gate": self.registry.meta(f.attrs["version"]).get("economic"),
                        "skill_t": f.attrs["skill_t"], "skill_gate": self.cfg.get("decision.min_skill_tstat"),
                        "bench_expected_h": ctx.bench_expected_h, "benchmark": bench, "regime": regime,
                        "ensemble_weights": self.registry.meta(f.attrs["version"])["ensemble_weights"],
@@ -252,16 +272,16 @@ class BigBoss:
             pass
         forecasts = {}
         for h in self.cfg.get("forecast.horizons"):
-            vid = self.registry.champion(h)
-            if not vid:
+            if not (self.registry.champion(h) or self.registry.latest(h)):
                 continue
             try:
-                f = self.registry.predict(vid, self.dataset())
+                f = self.forecast(h)  # champion, or the latest version flagged research-only
                 if symbol in f.index.get_level_values("symbol"):
                     r = f.xs(symbol, level="symbol").iloc[0]
                     forecasts[str(h)] = {**{k: r[k] for k in ("mean", "q10", "q50", "q90", "p_pos", "disagreement", "sign_agreement")},
                                          "model_means": {c[5:]: r[c] for c in f.columns if c.startswith("mean_")},
-                                         "top_drivers": r.get("top_drivers"), "version": vid, "skill_t": f.attrs["skill_t"]}
+                                         "top_drivers": r.get("top_drivers"), "version": f.attrs["version"], "skill_t": f.attrs["skill_t"],
+                                         "research_only": bool(f.attrs.get("research_only")), "as_of": f.attrs["as_of"]}
             except Exception as e:  # surface model problems instead of hiding them
                 forecasts[str(h)] = {"error": str(e)}
         out["forecasts"] = forecasts
@@ -413,7 +433,9 @@ class BigBoss:
         resolve_outcomes(self.store, self.cfg.get("forecast.execution_delay_days", 1))
         out["live_performance"] = live_performance(self.store)
         h = str(self.cfg.get("forecast.primary_horizon", 20))
-        vid = st["champions"].get(h)
+        vid = st["champions"].get(h) or self.registry.latest(int(h))
+        out["monitored_version"] = vid
+        out["monitored_is_champion"] = bool(vid and st["champions"].get(h) == vid)
         if vid:
             try:
                 ds = self.dataset()

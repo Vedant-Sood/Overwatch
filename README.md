@@ -48,12 +48,16 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 cp configs/bigboss.toml configs/local.toml   # then edit [data].sec_user_agent
 
 bigboss ingest --groups cross_asset --news     # keyless real data: FRED cross-asset proxies + macro + GDELT headlines
-bigboss ingest --groups us_etfs us_equities   # stock-level data: needs Stooq/Yahoo reachable or MASSIVE_API_KEY / FMP_API_KEY
+bigboss ingest --groups us_etfs us_equities   # stock-level data: FMP_API_KEY (dividend-adjusted, long history) or Massive
+bigboss ingest --no-prices --massive-market 500 --news   # whole US market (Massive) -> point-in-time top-500 universe incl. delisted
+bigboss backtest --horizon 20 --min-train 200 --step 21 --ablation   # settings for a ~2-year history
 bigboss status                                # coverage, freshness, validation issues
 bigboss train --horizon 20                    # walk-forward training, registers a model version, applies promotion gates
 bigboss backtest --horizon 20 --ablation      # baselines vs models, net of costs; cost sensitivity; ablation
 bigboss scan --horizon 20                     # ranked recommendations from the champion model
 bigboss research "Is MSFT attractive over the next month? What are the risks?"
+bigboss export-qc --experiment ID --out qc/   # replay an experiment in QuantConnect LEAN (docs/QUANTCONNECT.md)
+bigboss qc-compare --experiment ID --qc-results backtest.json   # compare the two engines
 bigboss serve                                 # API + dashboard at http://127.0.0.1:8000
 ```
 
@@ -148,15 +152,18 @@ and explicit invalidation conditions.
 
 ## Data sources, licensing and point-in-time integrity
 
+Recommendations and verification results per source: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
+
 | Source | Key? | Used for | Notes |
 |---|---|---|---|
+| yfinance (Yahoo Finance) | no | **default daily prices**: long history, dividend-adjusted, ETFs, indices, NSE/BSE | unofficial; Yahoo terms = personal use; no delisted tickers; Indian corporate-action errors are caught by validation |
 | FRED (`fred.stlouisfed.org`) | no (CSV) / `FRED_API_KEY` (API) | macro: rates, VIX, spreads, oil, FX, CPI, unemployment; **cross-asset proxies** (`XA:*`) | some series carry third-party copyright (ICE, S&P, Nikkei); ICE indices on FRED now cover only ~3 years |
 | Treasury Fiscal Data | no | average interest rates on marketable Treasury debt (monthly) | US public domain |
 | World Bank | no | annual CPI inflation and GDP growth per country | CC BY 4.0 |
 | SEC EDGAR | no (contact UA) | XBRL fundamentals and filing events | public domain; ≤10 req/s |
 | GDELT DOC 2.0 | no | recent news headlines (research/agents only, not model input) | ~1 request per 5 s; free/open, cite GDELT |
 | Massive (formerly Polygon.io) | `MASSIVE_API_KEY` | daily OHLCV for US stocks/ETFs | free tier ≈ 2 years history, 5 calls/min; split-adjusted only |
-| Financial Modeling Prep | `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
+| Financial Modeling Prep | `FMP_API` or `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
 | Finnhub | `FINNHUB_API_KEY` | company news (preferred over GDELT for US tickers when set) | free tier for personal use |
 | Alpha Vantage | `ALPHAVANTAGE_API_KEY` | fallback daily prices | free `TIME_SERIES_DAILY` is **unadjusted**; flagged |
 | Stooq / Yahoo chart | no | daily OHLCV incl. NSE/BSE (`.NS`/`.BO`) via Yahoo | used only where reachable; Yahoo terms restrict to personal use |
@@ -284,7 +291,11 @@ Credentials may only come from environment variables.
   record, a training-feature reference (deciles), and metadata (data fingerprint, folds, metrics).
 * **Promotion gates** (predetermined, on the *full* OOS record, never a recent streak): ensemble rank-IC t ≥ 1.0,
   80% interval coverage within [0.72, 0.88], Brier ≤ climatology + 0.005, ≥ 24 independent evaluation periods,
-  and, for a challenger, a positive paired IC difference against the champion on common dates. Forced promotions
+  **an economic test: the gated ensemble's walk-forward backtest must have net-of-cost IR > 0 and ≥ 90% probability
+  (PSR) that its true net edge is positive**, and, for a challenger, a positive paired IC difference against the champion
+  on common dates. Forecast skill alone (a significant IC) is not enough; on real data it was not. Gate changes can be
+  applied retroactively with `bigboss models reevaluate`, which demotes failing champions and logs why. Without a
+  champion, the scanner shows the latest model's forecasts as **research only**, with every action INSUFFICIENT EVIDENCE. Forced promotions
   require a written reason and are recorded. `bigboss models rollback --horizon 20` restores the previous champion.
 * **Drift**: PSI of each feature over the last 126 days against training deciles. Market-state features are labelled
   separately, since their drift usually means a regime change rather than a broken pipeline.
@@ -317,7 +328,7 @@ Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/doc
 ## Testing
 
 ```bash
-pytest -m "not network"     # 46 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
+pytest -m "not network"     # 74 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
                             # simulator accounting, SEC parsing, decisions, safety, paper broker, agents, registry, API
 pytest -m network           # live provider checks (skip cleanly when a provider is unreachable)
 cd frontend && npm run typecheck && npm run build
@@ -338,12 +349,16 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) for the experiments run during developm
 
 Known limitations (honest list):
 
-* **No real-market results yet.** The development container's network policy blocked Stooq, Yahoo, Ken French,
-  Treasury, ECB and NSE/BSE, and FRED was in maintenance. Real-data ingestion was verified only for SEC EDGAR
-  (fundamentals/filings for AAPL, MSFT, JPM; figures checked against Apple's reported FY2025 revenue/net income) and World Bank.
-  All model and backtest numbers in `docs/RESULTS.md` therefore come from the **synthetic** market. Run
-  `bigboss ingest && bigboss backtest` on your machine to get real-data results, and expect them to be much weaker.
-* Survivorship bias in the default universe; no free source of point-in-time index membership or delisted prices.
+* **Real-market evidence (see `docs/RESULTS.md`).** Across five real datasets, no model showed economic value after
+  costs that survives proper benchmarking and multiple-testing correction: FRED cross-asset proxies, 1992-2021
+  (significant IC, gated IR −0.12); 20 US large caps, 2008-2023 (no model beat equal weight of the same survivor names);
+  a point-in-time top-500 US stock universe including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system
+  stayed near SPY); 24 US ETFs, 2002-2022 (significant IC t 2.2, but best IR 0.32 with Deflated Sharpe 0.42; gated
+  0.0%); and 10 Indian large caps, 2010-2023 (no skill; equal weight's +7.4%/yr is survivorship plus a price-index benchmark). The point-in-time history is
+  only ~2 years (Massive free plan), far too short for confident conclusions.
+* Survivorship bias: the hand-picked default universe is biased (measured at ~2.5%/yr in 2025-26). `bigboss ingest
+  --massive-market 500` builds a point-in-time universe with delisted names, limited to the data plan's history window.
+  FMP's free plan serves only a subset of symbols (most ETFs and NSE/BSE tickers need a paid plan).
 * Macro values use the latest vintage with conservative lags, not ALFRED real-time vintages (revisions can leak slightly).
 * Corporate actions rely on provider-adjusted prices. Alpha Vantage free data is unadjusted and is flagged.
 * Bid-ask spreads are configured per asset class (real quotes are not freely available). Corwin–Schultz estimates are

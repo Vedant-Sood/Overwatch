@@ -22,12 +22,14 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "httpx>=0.27",
+  "yfinance>=0.2.50",
 ]
 
 [project.optional-dependencies]
 xgb = ["xgboost>=2.0"]
 nn = ["torch>=2.2"]
 tune = ["optuna>=3.5"]
+india = ["jugaad-data>=0.27"]
 dev = ["pytest>=8"]
 all = ["xgboost>=2.0", "torch>=2.2", "optuna>=3.5", "pytest>=8"]
 
