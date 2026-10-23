@@ -349,7 +349,10 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) for the experiments run during developm
 
 Known limitations (honest list):
 
-* **Real-market evidence (see `docs/RESULTS.md`).** Across five real datasets, no model showed economic value after
+* **Real-market evidence (see `docs/RESULTS.md`).** The strongest test - a survivorship-free US top-500 from DoltHub,
+  2020-2025 out of sample, 1,330 stocks incl. 302 that stopped trading - found **no forecast skill** (every model's IC
+  negative); ungated models trailed SPY by 3-13%/yr and the gated system abstained and matched SPY (−0.3%/yr).
+  Across five other real datasets, no model showed economic value after
   costs that survives proper benchmarking and multiple-testing correction: FRED cross-asset proxies, 1992-2021
   (significant IC, gated IR −0.12); 20 US large caps, 2008-2023 (no model beat equal weight of the same survivor names);
   a point-in-time top-500 US stock universe including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system
