@@ -375,6 +375,26 @@ MLP −0.004 / −0.14. Interval coverage 76-82%; Brier worse than climatology.
    international, sectors, commodities) trailed SPY by 3.1%/yr: 2009-2019 was a US large-cap decade.
 4. **The ML models were worse than the linear ones**, as in every real dataset so far: LightGBM −2.2%/yr, MLP −4.1%/yr.
 
+### Model training and promotion (2026-10-23)
+
+`bigboss train --horizon 20` was run on the two strongest real datasets. Both versions were registered and **both
+failed the promotion gates, so neither became champion**; the scanner and decision engine show their forecasts as
+research-only.
+
+| | ETF top-100 (Part 1h) | DoltHub stock top-500 (Part 1f) |
+|---|---|---|
+| version | `20261023T211412-h20-d01e` | `20261023T214346-h20-e079` |
+| skill: ensemble rank-IC t ≥ 1.0 | 0.81 **FAIL** | −1.05 **FAIL** |
+| coverage: 80% interval within [72%, 88%] | 81.5% pass | 79.0% pass |
+| Brier within tolerance of climatology | 0.2518 vs 0.2474 pass | 0.2511 vs 0.2491 pass |
+| sample size ≥ 24 months | 162 pass | 64 pass |
+| economic: net IR > 0 and PSR ≥ 0.90 | IR 0.06, PSR 0.59 **FAIL** | IR −0.16, PSR 0.36 **FAIL** |
+| champion | none | none |
+
+The gates were not loosened to find a passing model: changing the rule after seeing these results would be data
+snooping. A new rule would have to be fixed in advance and tested on the untouched holdouts (ETF: 2019-02 → 2021-11;
+stocks: 2025-07 → 2026-10).
+
 ---
 
 # Part 2 - Synthetic market (machinery validation)
