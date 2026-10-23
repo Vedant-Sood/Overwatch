@@ -9,6 +9,8 @@
   bigboss models [promote VID | rollback --horizon 20 | challenge VID]
   bigboss update                         # daily job: ingest -> forecast -> log predictions -> resolve outcomes
   bigboss schedule --every-hours 24      # run `update` on an interval (or use cron / Task Scheduler)
+  bigboss dolthub-sync --repo-dir D --export-dir E    # clone/pull DoltHub US EOD prices (2011-, incl. delisted)
+  bigboss ingest --no-prices --no-sec --dolthub E     # -> point-in-time top-500 universe 2011-today
   bigboss export-qc --experiment ID --out qc/   # files for an independent QuantConnect LEAN backtest
   bigboss qc-compare --experiment ID --qc-results result.json
   bigboss serve                          # API + built dashboard on http://127.0.0.1:8000
@@ -49,6 +51,12 @@ def cmd_ingest(args):
                                       progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
         print(f"massive market: {r}")
         syms = sorted(store.symbols()["symbol"])  # the point-in-time universe (+ ETFs) now defines the symbol set
+    if getattr(args, "dolthub", None):
+        r = ing.ingest_dolthub_market(args.dolthub, top_n=args.dolthub_top, start=args.dolthub_start,
+                                      extra_symbols=cfg.universe(["us_etfs"]), listing_csv=args.listing_csv,
+                                      progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+        print(f"dolthub market: {json.dumps(r, default=str)}")
+        syms = sorted(store.symbols()["symbol"])
     if not args.no_macro:
         out["macro"] = ing.ingest_macro()
     if not args.no_sec:
@@ -210,6 +218,12 @@ def cmd_serve(args):
     uvicorn.run("bigboss.api.app:app", host=args.host, port=args.port, reload=False)
 
 
+def cmd_dolthub_sync(args):
+    from bigboss.data.providers.dolthub import sync
+
+    print(json.dumps(sync(args.repo_dir, args.export_dir, args.dolt)))
+
+
 def cmd_export_qc(args):
     from bigboss.integrations.quantconnect import export_experiment
 
@@ -247,6 +261,16 @@ def main(argv=None):
     sp.add_argument("--news-limit", type=int, default=40, help="max symbols to fetch news for")
     sp.add_argument("--massive-market", type=int, default=0, metavar="N",
                     help="whole-market US bars from Massive grouped-daily + point-in-time top-N liquid universe")
+    sp.add_argument("--dolthub", metavar="EXPORT_DIR",
+                    help="whole-market US bars from a DoltHub export (see `bigboss dolthub-sync`) + point-in-time universe")
+    sp.add_argument("--dolthub-top", type=int, default=500)
+    sp.add_argument("--dolthub-start", default="2014-04-01", help="DoltHub's split table starts 2014-03; earlier splits are missing")
+    sp.add_argument("--listing-csv", help="Alpha Vantage LISTING_STATUS (state=delisted) CSV: classifies names delisted before "
+                                          "DoltHub's symbol directory begins (Oct 2017)")
+    sp = add("dolthub-sync", cmd_dolthub_sync, synthetic=False)
+    sp.add_argument("--repo-dir", required=True, help="where to clone post-no-preference/stocks (several GB)")
+    sp.add_argument("--export-dir", required=True, help="where to write the Parquet tables")
+    sp.add_argument("--dolt", help="path to the dolt executable (default: on PATH)")
     add("status", cmd_status)
     sp = add("demo-data", cmd_demo, synthetic=False)
     sp.add_argument("--n-assets", type=int, default=30)
