@@ -150,15 +150,18 @@ and explicit invalidation conditions.
 
 ## Data sources, licensing and point-in-time integrity
 
+Recommendations and verification results per source: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
+
 | Source | Key? | Used for | Notes |
 |---|---|---|---|
+| yfinance (Yahoo Finance) | no | **default daily prices**: long history, dividend-adjusted, ETFs, indices, NSE/BSE | unofficial; Yahoo terms = personal use; no delisted tickers; Indian corporate-action errors are caught by validation |
 | FRED (`fred.stlouisfed.org`) | no (CSV) / `FRED_API_KEY` (API) | macro: rates, VIX, spreads, oil, FX, CPI, unemployment; **cross-asset proxies** (`XA:*`) | some series carry third-party copyright (ICE, S&P, Nikkei); ICE indices on FRED now cover only ~3 years |
 | Treasury Fiscal Data | no | average interest rates on marketable Treasury debt (monthly) | US public domain |
 | World Bank | no | annual CPI inflation and GDP growth per country | CC BY 4.0 |
 | SEC EDGAR | no (contact UA) | XBRL fundamentals and filing events | public domain; ≤10 req/s |
 | GDELT DOC 2.0 | no | recent news headlines (research/agents only, not model input) | ~1 request per 5 s; free/open, cite GDELT |
 | Massive (formerly Polygon.io) | `MASSIVE_API_KEY` | daily OHLCV for US stocks/ETFs | free tier ≈ 2 years history, 5 calls/min; split-adjusted only |
-| Financial Modeling Prep | `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
+| Financial Modeling Prep | `FMP_API` or `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
 | Finnhub | `FINNHUB_API_KEY` | company news (preferred over GDELT for US tickers when set) | free tier for personal use |
 | Alpha Vantage | `ALPHAVANTAGE_API_KEY` | fallback daily prices | free `TIME_SERIES_DAILY` is **unadjusted**; flagged |
 | Stooq / Yahoo chart | no | daily OHLCV incl. NSE/BSE (`.NS`/`.BO`) via Yahoo | used only where reachable; Yahoo terms restrict to personal use |
