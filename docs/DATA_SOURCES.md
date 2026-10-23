@@ -36,6 +36,31 @@ large caps - in about a minute, with no key.
    excess returns by roughly 1.2-1.5%/yr).
 5. **Fundamentals from yfinance are not point-in-time** (no filing dates), so BigBoss does not use them for modelling.
 
+## Yahoo vs NSE exchange data (India cross-check)
+
+`bigboss.data.crosscheck.compare_returns` compares Yahoo's adjusted closes with NSE's raw closes (via `jugaad-data`,
+optional extra `pip install -e .[india]`). Days are classified as: corporate action (raw jump ≥ 15%), payout-like
+(raw falls more than adjusted: dividends, small demergers - what a correct adjustment looks like), or **flagged**.
+Results for the 10 configured NSE large caps, 2002 → 2026-10-23:
+
+| symbol | daily-return corr (normal days) | corporate-action days | payout-like days | flagged days |
+|---|---|---|---|---|
+| RELIANCE | 0.9976 | 7 | 5 | 0 |
+| TCS | 0.9986 | 5 | 2 | 0 |
+| HDFCBANK | 0.9994 | 6 | 0 | 0 |
+| INFY | 0.9985 | 9 | 3 | 0 |
+| ICICIBANK | 0.9969 | 7 | 3 | 2: 2025-03-18/19 (Yahoo 0.0% then +3.5%; NSE +3.2% then +0.2%) |
+| HINDUNILVR | 0.9978 | 2 | 3 | 0 |
+| ITC | 0.9951 | 3 | 15 | 2: 2008-07-16 (+3.5% vs +1.2%), 2023-05-30 (+2.4% vs +0.2%) |
+| SBIN | 0.9982 | 3 | 4 | 0 |
+| BHARTIARTL | 0.9986 | 4 | 1 | 0 |
+| LT | 0.9496 | 6 | 0 | 3: **2006-09-27 (Yahoo −50.6% vs NSE −1.1%)**, 2025-03-18/19 (same one-day lag as ICICI) |
+
+Conclusions: Yahoo's Indian data agrees with the exchange on ordinary days and handles dividends correctly. The errors
+are rare but large: a mis-applied L&T bonus adjustment in 2006 (already caught by validation, and outside the 2007+
+window BigBoss uses for India) and a stale Yahoo bar on 2025-03-18 that shifts one day's return by a session. Run the
+cross-check before trusting any new Indian symbol.
+
 ## Recommendations
 
 **Keep (free):** yfinance + FMP + SEC EDGAR + FRED as above. That covers long-history research for US and India.
@@ -49,6 +74,10 @@ large caps - in about a minute, with no key.
 3. **Total-return benchmarks.** For India, NIFTY 50 TRI (from NSE/niftyindices) instead of the ^NSEI price index.
 4. **Fix the Finnhub connector key** (it returns "Invalid API key") if you want analyst estimates and transcripts for the
    agents. It is optional: nothing in the models depends on it.
+
+5. **Independent engine check: QuantConnect (free plan).** QuantConnect's cloud backtester has survivorship-free US
+   equity data that cannot be downloaded on the free plan, but BigBoss's decisions can be replayed there:
+   `bigboss export-qc` + `bigboss qc-compare` (see `docs/QUANTCONNECT.md`).
 
 **Not recommended:** scraping websites without an API (RBI DBIE, SEBI), or using any provider's data for redistribution
 without checking its license.

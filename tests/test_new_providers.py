@@ -220,6 +220,7 @@ def test_crosscheck_separates_corporate_actions_from_adjustment_errors():
     raw[30:] /= 2  # 1:1 bonus: raw halves, adjusted continuous
     adj = 100 * np.cumprod(1 + np.r_[0, np.full(59, 0.001)])
     adj[45:] *= 1.3  # bogus 30% jump in the adjusted series on an ordinary day
+    raw[50:] *= 0.96  # 4% dividend ex-date: raw drops, adjusted correctly continuous
     r = compare_returns(pd.DataFrame({"date": d, "adj_close": adj}), pd.DataFrame({"date": d, "close": raw}))
-    assert r["n_corporate_action_days"] == 1
+    assert r["n_corporate_action_days"] == 1 and r["n_payout_like_days"] == 1
     assert r["n_suspicious_days"] == 1 and r["suspicious"]["date"].iloc[0] == d[45]

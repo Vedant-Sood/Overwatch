@@ -164,9 +164,10 @@ def run_experiment(store: Store, cfg: Config, horizon: int | None = None, models
     rets["benchmark_index"] = results["benchmark"].benchmark
     rets.to_parquet(out_dir / "returns.parquet")
     run.oos.reset_index().to_parquet(out_dir / "oos.parquet")
-    weights = results["ensemble_gated"].weights
-    if not weights.empty:
-        weights.to_parquet(out_dir / "weights_ensemble_gated.parquet")
+    # Target weights at every decision date for every strategy (used by audits and the QuantConnect exporter).
+    for nm, r in results.items():
+        if not r.weights.empty:
+            r.weights.to_parquet(out_dir / f"weights_{nm}.parquet")
     say(1.0, "done")
     log(logger, 20, "experiment complete", id=exp_id, seconds=summary["runtime_seconds"])
     return summary

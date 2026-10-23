@@ -9,6 +9,8 @@
   bigboss models [promote VID | rollback --horizon 20 | challenge VID]
   bigboss update                         # daily job: ingest -> forecast -> log predictions -> resolve outcomes
   bigboss schedule --every-hours 24      # run `update` on an interval (or use cron / Task Scheduler)
+  bigboss export-qc --experiment ID --out qc/   # files for an independent QuantConnect LEAN backtest
+  bigboss qc-compare --experiment ID --qc-results result.json
   bigboss serve                          # API + built dashboard on http://127.0.0.1:8000
 Add --synthetic to any research command to use the SYNTHETIC store instead of observed data.
 """
@@ -208,6 +210,22 @@ def cmd_serve(args):
     uvicorn.run("bigboss.api.app:app", host=args.host, port=args.port, reload=False)
 
 
+def cmd_export_qc(args):
+    from bigboss.integrations.quantconnect import export_experiment
+
+    m = export_experiment(get_config(), args.experiment, args.out, strategy=args.strategy, model=args.model)
+    print(json.dumps({k: m[k] for k in ("strategy", "oos_start", "oos_end", "n_decision_dates", "n_weight_rows",
+                                        "n_signal_rows", "symbols_skipped_not_on_qc_us_equities", "bigboss_metrics")},
+                     indent=1, default=str))
+    print(f"wrote {args.out}/ (weights.csv, signals.csv, main.py, manifest.json, README.md)")
+
+
+def cmd_qc_compare(args):
+    from bigboss.integrations.quantconnect import compare
+
+    print(json.dumps(compare(get_config(), args.experiment, args.qc_results, strategy=args.strategy), indent=1, default=str))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="bigboss", description="BigBoss investment research platform (research and paper trading only)")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -263,6 +281,15 @@ def main(argv=None):
     sp = add("schedule", cmd_schedule)
     sp.add_argument("--every-hours", type=float, default=24)
     sp.add_argument("--skip-sec", action="store_true")
+    sp = add("export-qc", cmd_export_qc, synthetic=False)
+    sp.add_argument("--experiment", required=True, help="experiment id under <data_dir>/experiments")
+    sp.add_argument("--out", required=True, help="output folder")
+    sp.add_argument("--strategy", default="ensemble_gated", help="strategy whose weights to replay")
+    sp.add_argument("--model", default="ensemble", help="model whose forecasts go into signals.csv")
+    sp = add("qc-compare", cmd_qc_compare, synthetic=False)
+    sp.add_argument("--experiment", required=True)
+    sp.add_argument("--qc-results", required=True, help="QuantConnect backtest result JSON")
+    sp.add_argument("--strategy", default="ensemble_gated")
     sp = add("serve", cmd_serve, synthetic=False)
     sp.add_argument("--host", default="127.0.0.1")
     sp.add_argument("--port", type=int, default=8000)

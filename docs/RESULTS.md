@@ -199,6 +199,77 @@ ridge 0.007 → 0.016; MLP 0.010 → 0.063 (t 1.71); momentum rule −0.073 (sho
 
 ---
 
+# Part 1d - Real data: 24 US ETFs, 2002-2022 (yfinance, dividend-adjusted; experiment `20261023T114106-fcbf`)
+
+| item | value |
+|---|---|
+| universe | 24 liquid US ETFs (sectors, size, international, bonds, credit, REITs, gold, silver, commodities); SPY benchmark |
+| data | yfinance from 1999, dividend-adjusted; holdout from 2022-08-17 untouched |
+| OOS | **2002-01-08 → 2022-08-16** (20.6 years), h = 20, monthly retrains |
+
+| strategy | ann. return | ann. excess vs SPY | IR | PSR | Deflated SR | max DD |
+|---|---|---|---|---|---|---|
+| SPY | 8.6% | – | – | – | – | −55.2% |
+| equal weight | 8.0% | −0.6% | −0.20 | 0.18 | 0.01 | −41.9% |
+| 12-1 momentum top-k | 9.5% | +0.9% | 0.02 | 0.54 | 0.06 | −32.5% |
+| model: ridge | 10.4% | +1.8% | **0.32** | **0.93** | 0.42 | −51.7% |
+| model: MLP | 9.3% | +0.7% | 0.15 | 0.75 | 0.16 | −53.9% |
+| ensemble (ungated) | 9.1% | +0.5% | 0.13 | 0.72 | 0.14 | −53.8% |
+| **ensemble (gated)** | 8.6% | **0.0%** | 0.03 | 0.55 | 0.06 | −54.1% |
+
+Forecast skill (rank IC / t): hist. mean 0.054 / **2.42**, ridge 0.047 / **2.15**, MLP 0.074 / **2.96**, ensemble 0.052 / **2.21**,
+LightGBM 0.011 / 0.46. 80% intervals covered 78-80%. Brier scores were again no better than climatology.
+
+**Findings**
+
+1. **The first statistically significant forecast skill on real data** (ensemble IC t 2.2, MLP 3.0, over 20 years
+   and 24 assets). The skill is in *ranking* asset classes over the next month, mostly slow-moving carry/trend effects
+   that the shrunk historical mean also captures.
+2. **The skill barely survives as money.** The best strategy (ridge) earned +1.8%/yr over SPY with IR 0.32. Its PSR of
+   0.93 passes the economic gate *in isolation*, but after correcting for the 12 strategies tested the Deflated Sharpe is
+   0.42: not significant. The ensemble kept +0.5%/yr.
+3. **The gate kept the production rule close to SPY.** The skill test (t ≥ 1 on prior data) passed in 25 of 42 folds
+   (median t 1.27), but even then the per-asset disagreement/sign-agreement checks abstained on a third to a half of the
+   24 ETFs, and abstained weight goes to the benchmark. Net: beta 1.00, excess 0.0%. That is the intended trade-off
+   (no false positives) at the price of missing a weak, real signal; a looser gate is a candidate for a challenger test.
+4. **Costs are not the issue here.** Moving from 0× to 3× costs changed the ensemble's excess return by only 0.1-0.3%/yr.
+5. **Survivorship is limited** (ETFs rarely close and these 24 are the long-lived ones), but the universe is still
+   chosen with hindsight.
+
+---
+
+# Part 1e - Real data: 10 Indian large caps, 2010-2023 (yfinance; experiment `20261023T123218-b200`)
+
+| item | value |
+|---|---|
+| universe | RELIANCE, TCS, HDFCBANK, INFY, ICICIBANK, HINDUNILVR, ITC, SBIN, BHARTIARTL, LT (NSE) |
+| benchmark | ^NSEI (NIFTY 50 **price** index: excludes dividends, so every excess return below is flattered by ~1.2-1.5%/yr) |
+| data | yfinance from 2007 (pre-2007 Indian adjustments are unreliable; see `DATA_SOURCES.md`) |
+| OOS | **2010-02-01 → 2023-11-02**; holdout from 2023-11-03 untouched; India costs include 10 bp STT |
+
+| strategy | ann. return | ann. excess vs ^NSEI | IR | max DD |
+|---|---|---|---|---|
+| ^NSEI (buy & hold) | 9.1% | – | – | −38.4% |
+| **equal weight** | **17.8%** | **+7.4%** | **1.22** | −34.2% |
+| 12-1 momentum top-k | 19.8% | +9.5% | 0.68 | −38.7% |
+| low-vol top-k | 19.5% | +9.1% | 0.66 | −44.1% |
+| model: ridge | 13.9% | +3.5% | 0.63 | −36.2% |
+| ensemble (ungated) | 13.8% | +3.4% | 0.58 | −37.2% |
+| **ensemble (gated)** | 10.2% | **−0.2%** | −0.06 | −37.0% |
+
+Forecast skill: no model was significant (ensemble IC 0.019, t 0.72; momentum rule −0.046, t −1.46).
+
+**Findings**
+
+1. **Every strategy that "won" is explained by the universe, not by skill.** Equal weight of today's ten largest
+   Indian companies beat the index by 7.4%/yr. That is survivorship (these are the ten that became giants), plus the
+   dividends missing from the price-index benchmark. No model beat equal weight of the same names.
+2. **No forecast skill**, so the gate abstained and the gated ensemble held the benchmark-like portfolio (−0.2%/yr).
+3. **Not usable for decisions until** there is a point-in-time Indian universe (index constituents by date, including
+   names that left) and a total-return benchmark (NIFTY 50 TRI).
+
+---
+
 # Part 2 - Synthetic market (machinery validation)
 
 **Read this first.** Every number in Part 2 comes from the **SYNTHETIC** market (`bigboss/data/synthetic.py`), not

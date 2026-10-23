@@ -56,6 +56,8 @@ bigboss train --horizon 20                    # walk-forward training, registers
 bigboss backtest --horizon 20 --ablation      # baselines vs models, net of costs; cost sensitivity; ablation
 bigboss scan --horizon 20                     # ranked recommendations from the champion model
 bigboss research "Is MSFT attractive over the next month? What are the risks?"
+bigboss export-qc --experiment ID --out qc/   # replay an experiment in QuantConnect LEAN (docs/QUANTCONNECT.md)
+bigboss qc-compare --experiment ID --qc-results backtest.json   # compare the two engines
 bigboss serve                                 # API + dashboard at http://127.0.0.1:8000
 ```
 
@@ -326,7 +328,7 @@ Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/doc
 ## Testing
 
 ```bash
-pytest -m "not network"     # 63 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
+pytest -m "not network"     # 74 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
                             # simulator accounting, SEC parsing, decisions, safety, paper broker, agents, registry, API
 pytest -m network           # live provider checks (skip cleanly when a provider is unreachable)
 cd frontend && npm run typecheck && npm run build
@@ -347,10 +349,12 @@ See [`docs/RESULTS.md`](docs/RESULTS.md) for the experiments run during developm
 
 Known limitations (honest list):
 
-* **Real-market evidence (see `docs/RESULTS.md`).** Across three real datasets, no model showed economic value after
-  costs that survives proper benchmarking: FRED cross-asset proxies, 1992-2021 (significant IC, gated IR −0.12); 20 US
-  large caps, 2008-2023 (no model beat equal weight of the same survivor names); and a point-in-time top-500 US stock universe
-  including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system stayed near SPY). The point-in-time history is
+* **Real-market evidence (see `docs/RESULTS.md`).** Across five real datasets, no model showed economic value after
+  costs that survives proper benchmarking and multiple-testing correction: FRED cross-asset proxies, 1992-2021
+  (significant IC, gated IR −0.12); 20 US large caps, 2008-2023 (no model beat equal weight of the same survivor names);
+  a point-in-time top-500 US stock universe including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system
+  stayed near SPY); 24 US ETFs, 2002-2022 (significant IC t 2.2, but best IR 0.32 with Deflated Sharpe 0.42; gated
+  0.0%); and 10 Indian large caps, 2010-2023 (no skill; equal weight's +7.4%/yr is survivorship plus a price-index benchmark). The point-in-time history is
   only ~2 years (Massive free plan), far too short for confident conclusions.
 * Survivorship bias: the hand-picked default universe is biased (measured at ~2.5%/yr in 2025-26). `bigboss ingest
   --massive-market 500` builds a point-in-time universe with delisted names, limited to the data plan's history window.
