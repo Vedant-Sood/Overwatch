@@ -24,6 +24,7 @@ class Dataset:
     tradeable: list[str]
     data_mode: str
     sources: dict[str, str] = field(default_factory=dict)
+    excluded: dict[str, str] = field(default_factory=dict)  # symbol -> validation ERROR that excluded it
 
     def label(self, h: int) -> str:
         return f"fwd_excess_{h}"
@@ -44,10 +45,16 @@ def build_dataset(store: Store, cfg: Config, symbols: list[str] | None = None, m
         # history filter would silently drop names that listed late or delisted early (survivorship bias).
         min_history = min(min_history, 40)
     keep = counts[counts >= min_history].index
+    bad = store.error_symbols()  # ERROR-level validation issues exclude a symbol until data is fixed/re-ingested
+    keep = [s for s in keep if s not in bad]
     prices = prices[prices["symbol"].isin(keep)]
     syms = sorted(prices["symbol"].unique())
 
     bmap = {s: (meta.loc[s, "benchmark"] if s in meta.index and pd.notna(meta.loc[s, "benchmark"]) else cfg.benchmark_for(s)) for s in syms}
+    broken = {b for b in bmap.values() if b in bad}
+    if broken:
+        raise ValueError(f"benchmark(s) failed data validation and cannot be used: "
+                         + "; ".join(f"{b} ({bad[b][:160]})" for b in sorted(broken)))
     benches = sorted({b for b in bmap.values() if b in syms})
     primary_bench = benches[0] if benches else None
     if "SPY" in benches:
@@ -89,7 +96,7 @@ def build_dataset(store: Store, cfg: Config, symbols: list[str] | None = None, m
     groups = {g: [c for c in cols if c in feature_cols] for g, cols in FEATURE_GROUPS.items()}
     groups = {g: c for g, c in groups.items() if c}
     sources = prices.groupby("symbol")["source"].first().to_dict()
-    return Dataset(frame.sort_index(), feature_cols, groups, bmap, tradeable, store.mode, sources)
+    return Dataset(frame.sort_index(), feature_cols, groups, bmap, tradeable, store.mode, sources, bad)
 
 
 def train_matrix(ds: Dataset, h: int, dates: pd.DatetimeIndex | None = None, require_label: bool = True):

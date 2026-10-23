@@ -184,3 +184,17 @@ def test_common_stock_filter_checks_each_record_type():
 
     cs = MassiveMarket(Http()).common_stocks()
     assert set(cs) == {"AAPL", "MSFT"}
+
+
+def test_yfinance_history_normalization():
+    from bigboss.data.providers.yfinance_provider import frame_from_history
+
+    idx = pd.DatetimeIndex(["2024-01-02 00:00", "2024-01-03 00:00", "2024-01-03 00:00"], tz="Asia/Kolkata")
+    h = pd.DataFrame({"Open": [10, 11, 11], "High": [11, 12, 12], "Low": [9, 10, 10], "Close": [10.5, 11.5, 11.6],
+                      "Adj Close": [10.0, 11.0, 11.1], "Volume": [100, 200, 200], "Dividends": [0, 0, 0], "Stock Splits": [0, 0, 0]}, index=idx)
+    df = frame_from_history(h, pd.Timestamp("2024-01-04"))
+    assert list(df["date"]) == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]  # exchange-local dates, de-duplicated
+    assert df["adj_close"].iloc[-1] == 11.1 and df["close"].iloc[-1] == 11.6
+    assert (df["adjustment"] == "adj_close_split_and_dividend").all()
+    with pytest.raises(ProviderError):
+        frame_from_history(pd.DataFrame(), pd.Timestamp("2024-01-04"))

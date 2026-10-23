@@ -10,10 +10,12 @@ data_dir = "data"               # DuckDB store, raw-response cache, model regist
 # stooq      - free, keyless daily OHLCV for US/intl equities, ETFs, indices
 # yahoo      - free chart endpoint; needed for NSE/BSE (.NS/.BO). Personal research use only - read Yahoo's terms.
 # alphavantage - needs a free key in env ALPHAVANTAGE_API_KEY
+# yfinance   - keyless Yahoo Finance via the yfinance library: long history, dividends, ETFs, indices, NSE/BSE.
+#              Unofficial; Yahoo terms = personal use; no delisted tickers (use massive for a PIT universe)
 # fred_xa    - keyless cross-asset proxies built from FRED (XA:* symbols, see bigboss/data/providers/fred_assets.py)
 # massive    - Massive (formerly Polygon.io) daily aggregates; free key in env MASSIVE_API_KEY
 # fmp        - Financial Modeling Prep end-of-day prices; free key in env FMP_API_KEY
-price_providers = ["fred_xa", "massive", "fmp", "stooq", "yahoo", "alphavantage"]
+price_providers = ["fred_xa", "yfinance", "fmp", "massive", "stooq", "yahoo", "alphavantage"]
 history_start = "2005-01-01"
 sec_user_agent = "BigBoss research (set-your-email@example.com)"   # SEC requires a contact UA
 max_staleness_days = 5          # data older than this is flagged STALE in the API and dashboard

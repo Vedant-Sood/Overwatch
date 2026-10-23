@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from bigboss.data.validation import assert_no_lookahead, validate_prices
 from bigboss.features.context import event_features, macro_features
@@ -117,3 +118,23 @@ def test_pit_universe_keeps_short_history_names(cfg, synth_market):
     ds = build_dataset(st, c)
     assert "SYN001" in ds.tradeable
     assert ds.frame.xs("SYN001", level="symbol").index.max() <= dates[119]
+
+
+def test_error_level_validation_excludes_symbol_and_guards_benchmark(cfg, synth_market):
+    from bigboss.data.store import Store
+    from bigboss.features.dataset import build_dataset
+
+    c = cfg.with_overrides({"benchmarks": {"default": "SYNMKT", "US": "SYNMKT"}})
+    st = Store.for_mode(c.data_dir, "SYNTHETIC")
+    st.upsert("prices", synth_market["prices"], ["symbol", "date"])
+    st.upsert("symbols", synth_market["symbols"], ["symbol"])
+    issue = lambda run, sym, sev: {"run_id": run, "ts": pd.Timestamp("2026-01-01"), "symbol": sym, "check_name": "positive_prices",
+                                   "severity": sev, "detail": "bad"}
+    st.append("validation_issues", pd.DataFrame([issue("r1", "SYN003", "ERROR")]))
+    ds = build_dataset(st, c)
+    assert "SYN003" not in ds.tradeable and "SYN003" in ds.excluded
+    st.append("validation_issues", pd.DataFrame([issue("r2", "SYN003", "WARN")]))  # re-ingested and now clean
+    assert "SYN003" in build_dataset(st, c).tradeable
+    st.append("validation_issues", pd.DataFrame([issue("r3", "SYNMKT", "ERROR")]))
+    with pytest.raises(ValueError, match="benchmark"):
+        build_dataset(st, c)
