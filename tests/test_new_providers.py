@@ -198,3 +198,28 @@ def test_yfinance_history_normalization():
     assert (df["adjustment"] == "adj_close_split_and_dividend").all()
     with pytest.raises(ProviderError):
         frame_from_history(pd.DataFrame(), pd.Timestamp("2024-01-04"))
+
+
+def test_nse_normalization_keeps_eq_series_and_fixes_dates():
+    from bigboss.data.providers.nse import normalize_nse_frame
+
+    raw = pd.DataFrame({"DATE": pd.to_datetime(["2024-01-01 18:30", "2024-01-01 18:30", "2024-01-02 18:30"]),
+                        "SERIES": ["EQ", "BL", "EQ"], "OPEN": [100, 90, 101], "HIGH": [102, 90, 103], "LOW": [99, 90, 100],
+                        "CLOSE": [101, 90, 102], "VOLUME": [1e6, 5e4, 1.1e6]})
+    df = normalize_nse_frame(raw, pd.Timestamp("2024-01-04"))
+    assert list(df["date"]) == [pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-03")]  # IST session dates
+    assert list(df["close"]) == [101, 102]  # block-deal (BL) row dropped
+    assert (df["adjustment"] == "UNADJUSTED_EXCHANGE_RAW").all()
+
+
+def test_crosscheck_separates_corporate_actions_from_adjustment_errors():
+    from bigboss.data.crosscheck import compare_returns
+
+    d = pd.bdate_range("2024-01-01", periods=60)
+    raw = 100 * np.cumprod(1 + np.r_[0, np.full(59, 0.001)])
+    raw[30:] /= 2  # 1:1 bonus: raw halves, adjusted continuous
+    adj = 100 * np.cumprod(1 + np.r_[0, np.full(59, 0.001)])
+    adj[45:] *= 1.3  # bogus 30% jump in the adjusted series on an ordinary day
+    r = compare_returns(pd.DataFrame({"date": d, "adj_close": adj}), pd.DataFrame({"date": d, "close": raw}))
+    assert r["n_corporate_action_days"] == 1
+    assert r["n_suspicious_days"] == 1 and r["suspicious"]["date"].iloc[0] == d[45]
