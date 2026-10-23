@@ -268,6 +268,51 @@ Forecast skill: no model was significant (ensemble IC 0.019, t 0.72; momentum ru
 3. **Not usable for decisions until** there is a point-in-time Indian universe (index constituents by date, including
    names that left) and a total-return benchmark (NIFTY 50 TRI).
 
+# Part 1f - Real data: point-in-time US top-500, 2018-2026, incl. delisted names (DoltHub; experiment `20261023T144009-f932`)
+
+**The longest survivorship-free real test so far.** 5.1 years out of sample, roughly 5x Part 1c.
+
+| item | value |
+|---|---|
+| data | DoltHub `post-no-preference/stocks` raw bars, adjusted by BigBoss from DoltHub's split/dividend tables; 24 unrecorded splits corrected and 25 bogus split records dropped after verification (see `DATA_SOURCES.md`); total returns match yfinance (median daily corr 0.9997, mean gap −7 bp/yr) |
+| universe | on each date from **2018-09-07**, the top 500 common stocks by trailing 60-day median raw dollar volume (raw price ≥ $5, ≥ 40 sessions), from information before that date |
+| breadth | **1,330 distinct stocks** were members; **302 stopped trading** before the end (bankruptcies, acquisitions, renames); SPY benchmark |
+| OOS | **2020-06-02 → 2025-07-21** (21 quarterly retrains, min. 2 years training); holdout from 2025-07-22 untouched |
+| features | price, volume, cross-section, market and macro; **no fundamentals** (SEC coverage of delisted names would be uneven, which would itself bias results) |
+
+| strategy | ann. return | ann. excess vs SPY | IR | beta | max DD | Deflated SR |
+|---|---|---|---|---|---|---|
+| SPY | 16.7% | – | – | 1.00 | −23.5% | – |
+| equal weight of PIT universe | 18.5% | +1.5% | 0.21 | 1.08 | −29.5% | 0.12 |
+| **12-1 momentum top-10** | **56.8%** | **+39.8%** | 0.89 | 1.64 | **−59.0%** | 0.64 |
+| low-vol top-10 | 4.9% | −12.1% | −0.91 | – | −15.7% | 0.00 |
+| model: ridge | 14.0% | −3.0% | −0.13 | 1.12 | −35.6% | 0.03 |
+| model: LightGBM | 12.9% | −4.1% | −0.10 | – | −44.4% | 0.03 |
+| model: XGBoost | 4.2% | −12.8% | −0.48 | – | −61.8% | 0.00 |
+| model: MLP | 4.7% | −12.2% | −0.58 | – | −54.0% | 0.00 |
+| ensemble (ungated) | 12.6% | −4.4% | −0.25 | 1.15 | −35.5% | 0.01 |
+| **ensemble (gated)** | 16.7% | **−0.3%** | −0.16 | 0.98 | −23.5% | 0.03 |
+
+Forecast skill (rank IC / t): every model negative: ensemble −0.029 / −1.05, ridge −0.037 / −1.75, MLP −0.020 / −0.58,
+LightGBM −0.008 / −0.28. 80% intervals covered 79-80%. Brier scores worse than climatology.
+
+**Findings**
+
+1. **No forecast skill in US single stocks over five years, and the ML models lost money.** Every model ranked stocks
+   slightly *worse* than chance; the ungated ensemble trailed SPY by 4.4%/yr and XGBoost/MLP by ~12%/yr with drawdowns
+   above 50%. The positive Part 1c numbers (11 months, 2025-26) did not generalise.
+2. **The gate did exactly its job.** The skill test (t ≥ 1 on prior data) passed on **0 of 50** rebalances, so the
+   production rule abstained throughout, held SPY (turnover 0.10, beta 0.98) and finished at −0.3%/yr - avoiding the
+   models' losses.
+3. **12-1 momentum top-10 earned +39.8%/yr over SPY, from a handful of famous winners**: Carvana, Super Micro,
+   MicroStrategy, Novavax, GameStop, Palantir, D-Wave, Tesla, AppLovin, Riot. All of these were checked against
+   yfinance, so it is not a data error. But it is a concentrated speculative bet: beta 1.64, a −59% drawdown, a flat
+   2023, and a Deflated Sharpe of 0.64 after 12 strategies. Not significant, and not something the decision engine
+   should adopt on this evidence.
+4. **Equal weight of the point-in-time universe beat SPY by only 1.5%/yr** (vs +10.7% in Part 1c's 11 months): it
+   won in high-volatility bull markets (+15%/yr) and lost in calm bull markets (−7%/yr) as mega-caps led.
+5. **Costs are irrelevant to the conclusion.** At 0x to 3x costs the ensemble's excess moved from −4.2% to −4.8%.
+
 ---
 
 # Part 2 - Synthetic market (machinery validation)
