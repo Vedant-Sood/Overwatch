@@ -338,6 +338,43 @@ construction. It is reported only to measure that bias and the robustness of Par
 3. **Model skill stays absent.** In the full biased run the ICs turn slightly positive (ensemble 0.011, t 0.58; best
    XGBoost t 1.01), still insignificant; the gated ensemble ended at −0.9%/yr and the ungated one at −1.6%/yr.
 
+# Part 1h - Real data: point-in-time top-100 US ETFs, 2006-2019 (Training-Data ETF file; experiment `20261023T201019-5f60`)
+
+| item | value |
+|---|---|
+| data | `Vedant-Sood/Training-Data` `ETF prices.csv` (2,310 ETFs, 1993 → 2021-11), dividend-adjusted; matches yfinance (median daily corr 0.99996); see `TRAINING_DATA.md` |
+| universe | on each date the 100 most-traded ETFs (trailing 60-day median dollar volume, price ≥ $5), **excluding 241 leveraged / inverse / volatility products**; fund categories as sectors; 352 ETFs were ever members |
+| bias | ETFs closed before Nov 2021 are absent (survivors only); milder than for stocks, but results are biased upward somewhat |
+| OOS | **2006-03-02 → 2019-02-07** (13 years, 156 monthly retrains, 5-year rolling window); holdout from 2019-02-08 untouched |
+
+| strategy | ann. return | ann. excess vs SPY | IR | beta | max DD |
+|---|---|---|---|---|---|
+| SPY | 8.1% | – | – | 1.00 | −55.2% |
+| equal weight of the 100 | 5.0% | −3.1% | −0.53 | 0.77 | −49.4% |
+| 12-1 momentum top-10 | 1.0% | −7.0% | −0.39 | – | −49.2% |
+| low-vol top-10 | 2.3% | −5.7% | −0.37 | – | −4.2% |
+| model: shrunk hist. mean | 7.8% | −0.3% | −0.07 | 0.94 | −50.4% |
+| model: ridge (best) | 8.8% | +0.7% | 0.11 | 0.96 | −48.9% |
+| model: LightGBM | 5.9% | −2.2% | −0.23 | – | −61.6% |
+| model: MLP | 4.0% | −4.1% | −0.43 | – | −57.1% |
+| ensemble (ungated) | 7.4% | −0.6% | −0.09 | – | −56.8% |
+| **ensemble (gated)** | 8.2% | **+0.2%** | 0.06 | 1.00 | −54.8% |
+
+Forecast skill (rank IC / t): hist. mean 0.047 / **2.07**, ridge 0.038 / 1.55, ensemble 0.022 / 0.81, LightGBM 0.015 / 0.53,
+MLP −0.004 / −0.14. Interval coverage 76-82%; Brier worse than climatology.
+
+**Findings**
+
+1. **A broad ETF universe does not rescue the weak skill of Part 1d.** Only the simplest forecast (shrunk historical
+   mean) ranked ETFs significantly better than chance (t 2.07), and it did not translate into returns (−0.3%/yr). The
+   best strategy, ridge, earned +0.7%/yr with IR 0.11 - noise.
+2. **The skill that existed disappeared after 2008.** The gate's skill test (t ≥ 1 on prior data) passed in 20 of 156
+   folds, **all of them in 2006-2008**, and never again. The gated ensemble traded in those years and then held SPY,
+   ending at +0.2%/yr. This is the gate working as designed: it stopped betting when the evidence went away.
+3. **Diversifying away from SPY cost money in this era.** Equal weight of the 100 most-traded ETFs (bonds,
+   international, sectors, commodities) trailed SPY by 3.1%/yr: 2009-2019 was a US large-cap decade.
+4. **The ML models were worse than the linear ones**, as in every real dataset so far: LightGBM −2.2%/yr, MLP −4.1%/yr.
+
 ---
 
 # Part 2 - Synthetic market (machinery validation)
