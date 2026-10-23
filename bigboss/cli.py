@@ -54,6 +54,8 @@ def cmd_ingest(args):
     if getattr(args, "dolthub", None):
         r = ing.ingest_dolthub_market(args.dolthub, top_n=args.dolthub_top, start=args.dolthub_start,
                                       extra_symbols=cfg.universe(["us_etfs"]), listing_csv=args.listing_csv,
+                                      universe_from=None if args.universe_from == "none" else args.universe_from,
+                                      verify_splits=args.verify_splits,
                                       progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
         print(f"dolthub market: {json.dumps(r, default=str)}")
         syms = sorted(store.symbols()["symbol"])
@@ -265,6 +267,10 @@ def main(argv=None):
                     help="whole-market US bars from a DoltHub export (see `bigboss dolthub-sync`) + point-in-time universe")
     sp.add_argument("--dolthub-top", type=int, default=500)
     sp.add_argument("--dolthub-start", default="2014-04-01", help="DoltHub's split table starts 2014-03; earlier splits are missing")
+    sp.add_argument("--universe-from", default="2018-09-07",
+                    help="first universe date; before 2018-09-07 DoltHub only has names that survived to 2018 ('none' = no limit)")
+    sp.add_argument("--verify-splits", action="store_true",
+                    help="check DoltHub's unrecorded-split candidates against yfinance and correct confirmed ones")
     sp.add_argument("--listing-csv", help="Alpha Vantage LISTING_STATUS (state=delisted) CSV: classifies names delisted before "
                                           "DoltHub's symbol directory begins (Oct 2017)")
     sp = add("dolthub-sync", cmd_dolthub_sync, synthetic=False)

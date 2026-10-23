@@ -61,7 +61,19 @@ def test_unrecorded_split_is_flagged_but_crash_is_not():
     empty_s = pd.DataFrame(columns=["act_symbol", "ex_date", "to_factor", "for_factor"])
     empty_d = pd.DataFrame(columns=["act_symbol", "ex_date", "amount"])
     _, st = adjust_market(bars, empty_s, empty_d)
-    assert [c[0] for c in st["unrecorded_split_candidates"]] == ["AAA"]
+    flagged = {c[0]: c[4] for c in st["unrecorded_split_candidates"]}
+    assert flagged == {"AAA": True, "BBB": False}  # both are verification candidates; only AAA looks like a split
+
+
+def test_recorded_split_is_checked_against_prices():
+    d = pd.bdate_range("2022-06-27", periods=20)
+    raw = np.r_[np.full(15, 2200.0), np.full(5, 110.0)]  # real 20:1 at d[15]
+    bars = segment_symbols(pd.DataFrame({"act_symbol": "G", "date": d, "open": raw, "high": raw, "low": raw, "close": raw,
+                                         "volume": 1.0}))
+    splits = pd.DataFrame({"act_symbol": ["G", "G"], "ex_date": [d[3], d[14]], "to_factor": [20.0, 20.0], "for_factor": [1.0, 1.0]})
+    px, st = adjust_market(bars, splits, pd.DataFrame(columns=["act_symbol", "ex_date", "amount"]))
+    assert st["splits_dropped_unconfirmed"] == 1 and st["splits_moved"] == 1 and st["splits_used"] == 1
+    assert np.allclose(px["close"], 110.0)
 
 
 def test_alpha_vantage_listing_classifies_names_missing_from_dolthub_directory():
@@ -76,3 +88,23 @@ def test_alpha_vantage_listing_classifies_names_missing_from_dolthub_directory()
     out = classify_with_listing(sym, lst)
     assert set(out["act_symbol"]) == {"AAPL", "LNKD", "EMC"}
     assert out.set_index("act_symbol").at["AAPL", "class_source"] == "dolthub_symbol"
+
+
+def test_split_confirmation_uses_same_span_and_corrects_only_disagreements():
+    from bigboss.data.providers.dolthub import confirm_unrecorded_splits
+
+    idx = pd.to_datetime(["2021-02-01", "2021-02-02", "2021-02-03", "2018-11-06", "2018-11-07"])
+    yf = {"GME": pd.Series([225.0, 90.0, 92.41], index=idx[:3]),   # DoltHub misses 02-02: its 2-day move is real
+          "TJX": pd.Series([50.0, 50.6], index=idx[3:])}           # real 2:1 split DoltHub did not record
+    cands = [("GME", "2021-02-03", 0.4107, "2021-02-01"), ("TJX", "2018-11-07", 0.5025, "2018-11-06"),
+             ("SIVB", "2023-03-09", 0.3959, "2023-03-08")]
+
+    def fetch(t, start):
+        if t not in yf:
+            raise KeyError(t)
+        return yf[t]
+
+    fixes, rep = confirm_unrecorded_splits(cands, fetch)
+    assert list(fixes["act_symbol"]) == ["TJX"]
+    assert abs(fixes["to_factor"].iloc[0] - (50.6 / 50.0) / 0.5025) < 1e-9
+    assert [r["action"].split(" ")[0] for r in rep] == ["kept", "corrected", "kept"]
