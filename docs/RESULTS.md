@@ -313,6 +313,31 @@ LightGBM −0.008 / −0.28. 80% intervals covered 79-80%. Brier scores worse th
    won in high-volatility bull markets (+15%/yr) and lost in calm bull markets (−7%/yr) as mega-caps led.
 5. **Costs are irrelevant to the conclusion.** At 0x to 3x costs the ensemble's excess moved from −4.2% to −4.8%.
 
+### Part 1g - Sensitivity: the same pipeline on 2014-2026, including DoltHub's survivor-only history (experiment `20261023T151701-277e`)
+
+Before 2018-09 DoltHub holds only names still listed in 2018, so this run is **survivorship-biased in 2014-2018** by
+construction. It is reported only to measure that bias and the robustness of Part 1f. OOS 2016-03-30 → 2024-11-27;
+1,501 stocks were ever members (378 stopped trading, all after 2018).
+
+| window | equal weight | momentum top-10 | ensemble (ungated) | ensemble (gated) | LightGBM |
+|---|---|---|---|---|---|
+| biased run, 2016-03 → 2018-08 (survivor-only universe) | **+6.3%** | +5.7% | +0.7% | −0.3% | +6.3% |
+| biased run, 2018-09 → 2020-05 | −1.3% | +10.2% | +8.3% | 0.0% | +16.4% |
+| biased run, 2020-06 → 2024-11 | +2.9% | **+17.2%** | −6.6% | −1.7% | −8.0% |
+| Part 1f (clean), 2020-06 → 2024-11 | +1.2% | **+34.6%** | −6.1% | −0.6% | −4.5% |
+
+(annual excess return vs SPY in each window)
+
+1. **Survivor-only history flatters results.** Equal weight of the 2016-18 survivor universe beat SPY by 6.3%/yr,
+   against +1-3% in the survivorship-free windows. That is the expected direction and size (Part 1c measured 2.5%/yr
+   in one year), though different market periods also differ.
+2. **The momentum result is fragile.** On the same 2020-06 → 2024-11 window and the same data, momentum top-10 earned
+   +34.6%/yr in one run and +17.2%/yr in the other. The main difference is *which days* the 20-day rebalances fall on
+   (the runs start on different dates). A 10-stock bet on speculative winners is that sensitive to timing, which is
+   further reason not to trust Part 1f's +39.8%.
+3. **Model skill stays absent.** In the full biased run the ICs turn slightly positive (ensemble 0.011, t 0.58; best
+   XGBoost t 1.01), still insignificant; the gated ensemble ended at −0.9%/yr and the ungated one at −1.6%/yr.
+
 ---
 
 # Part 2 - Synthetic market (machinery validation)
