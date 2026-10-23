@@ -9,7 +9,8 @@ validated, and (where possible) cross-checked against a second source.
 |---|---|---|---|
 | Long daily history, dividends, ETFs, indices, **India (NSE/BSE)** | **yfinance** (keyless) | verified | Back to 1999-2002 for most names; dividend-adjusted; covers everything FMP's free plan refuses |
 | Independent cross-check / fallback for US prices | **FMP** (`FMP_API` or `FMP_API_KEY`) | verified | Official licensed API; dividend-adjusted series matched yfinance (daily-return corr ≥ 0.99996, identical 10y totals) |
-| **Survivorship-free** US universe (incl. delisted names) | **Massive** grouped-daily (network secret) | verified | One call = the whole US market for a day; only source here that includes names after they delist |
+| **Survivorship-free** US universe, **2018-09 → today** | **DoltHub** `post-no-preference/stocks` (keyless, `dolt` CLI) | verified | Whole US market daily incl. names that later delisted; split/dividend tables; ~8 years |
+| Survivorship-free US universe, last 2 years | **Massive** grouped-daily (network secret) | verified | One call = the whole US market for a day; free plan limited to 2 years |
 | Point-in-time fundamentals and filing events | **SEC EDGAR** (keyless) | verified | Filing dates make them point-in-time; first-filed values ignore restatements |
 | Macro, rates, FX, cross-asset proxies | **FRED** (keyless CSV), Treasury Fiscal Data, World Bank | verified | Long history, official |
 | News | Massive news (with sentiment), GDELT (keyless) | verified | Research/agents only - not a model input |
@@ -35,6 +36,32 @@ large caps - in about a minute, with no key.
    For India, start histories in 2007 and benchmark to ^NSEI (a price index: it excludes dividends, so it flatters
    excess returns by roughly 1.2-1.5%/yr).
 5. **Fundamentals from yfinance are not point-in-time** (no filing dates), so BigBoss does not use them for modelling.
+
+## DoltHub `post-no-preference/stocks` (verified 2026-10-23)
+
+Free, versioned Dolt database of US end-of-day bars, splits, dividends and the Nasdaq Trader symbol directory.
+`bigboss dolthub-sync` clones it (4.5 GB) and exports Parquet tables (0.9 GB); `bigboss ingest --dolthub <export>`
+builds the point-in-time universe. 29.4 M bars, 21,842 tickers, 2011-01-03 → 2026-10-22.
+
+**What was verified**
+
+| check | result |
+|---|---|
+| delisted names kept | yes from 2018: SIVB ends 2023-03-09, TWTR 2022-10-27, ATVI 2023-10-12, PXD 2024-05-02, FRC 2023-04-28 (all correct) |
+| before 2018 | **not survivorship-free**: no ticker in `ohlcv` stops trading before 2018. EMC, LinkedIn, Yahoo, Time Warner are absent; pre-2018 bars are a backfill of names alive in 2018, and some (Celgene, Red Hat, Express Scripts) start only in 2018. BigBoss's universe therefore starts on **2018-09-07**, when daily full-market collection began |
+| prices | RAW (unadjusted) closes; occasional missing sessions (e.g. GME 2021-02-02) |
+| split table | starts 2014-03; **25 bogus/duplicate records** (e.g. GOOGL 20:1 on both 2022-06-30 and 07-18) and **24 missing splits/conversions** among universe members (TJX 2:1 2018, ODFL 3:2 2020, EW 3:1 2020, CP 5:1 2021, AZN ADR→share 2026, ...). BigBoss checks every recorded split against the raw price jump and verifies every ±30% raw move of a universe member against yfinance over the same span (`--verify-splits`); 681 were real moves, 24 were corrected, 174 had no independent data (mostly delisted names; left as is) |
+| dividends | 23,199 applied; amounts are not consistently split-adjusted (AAPL Aug-2020 stored post-split); 7 implausible (> 25% yield) dropped. **Spin-offs are not in the tables** (e.g. MRK/Organon), which understates those holders' returns |
+| total return vs yfinance (33 random current members + SPY/AAPL/JNJ, 2018-09 → 2026-10) | median daily-return correlation 0.9997, worst 0.9945; median annual total-return gap 0 bp, mean −7 bp/yr, worst −71 bp/yr (CBOE) |
+| ticker reuse | handled by splitting series at gaps > 30 days (e.g. BBBY 2023 vs the 2025 re-listing, FB → META in 2022 becomes a sale and a later re-entry) |
+| licence | none stated in the repository; personal research use |
+
+**Alpha Vantage connector:** `LISTING_STATUS` (state=delisted) returns 9,599 delisted US stocks/ETFs with dates (thin
+before 2015; bankruptcies like SIVB/BBBY/FRC missing). BigBoss uses it to classify names that DoltHub's symbol
+directory (which starts in Oct 2017) never saw. Full daily price history (raw or adjusted) is premium on this plan.
+
+**Kaggle "Huge Stock Market Dataset"** (not used): it ends in Nov 2017 and contains only names listed when it was
+scraped, so it cannot fix the pre-2018 survivorship gap either.
 
 ## Yahoo vs NSE exchange data (India cross-check)
 
@@ -66,9 +93,9 @@ cross-check before trusting any new Indian symbol.
 **Keep (free):** yfinance + FMP + SEC EDGAR + FRED as above. That covers long-history research for US and India.
 
 **For better evidence (the current bottleneck is history depth of the survivorship-free data):**
-1. **Upgrade Massive to a plan with 10+ years of history.** This is the single most valuable upgrade: the only
-   survivorship-free real test here covers 11 months out of sample, far too short to judge any strategy. The ingestion
-   code already handles longer windows (`bigboss ingest --no-prices --massive-market 500`).
+1. **For history before 2018 that includes delisted names**, a paid source is still needed (Massive 10+ year plans,
+   Norgate, CRSP via a university). DoltHub now gives ~8 free survivorship-free years (2018-09 →); see
+   RESULTS Part 1f.
 2. **If you trade Indian stocks seriously**, get an official NSE data feed or a broker API (e.g. a Zerodha Kite Connect
    subscription) for adjusted history and corporate actions. Yahoo's Indian data had the most errors of any source tested.
 3. **Total-return benchmarks.** For India, NIFTY 50 TRI (from NSE/niftyindices) instead of the ^NSEI price index.
