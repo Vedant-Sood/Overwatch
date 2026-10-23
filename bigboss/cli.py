@@ -59,6 +59,11 @@ def cmd_ingest(args):
                                       progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
         print(f"dolthub market: {json.dumps(r, default=str)}")
         syms = sorted(store.symbols()["symbol"])
+    if getattr(args, "etf_file", None):
+        r = ing.ingest_etf_file(args.etf_file, args.etf_meta, top_n=args.etf_top, start=args.etf_start,
+                                progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+        print(f"etf file: {json.dumps(r, default=str)}")
+        syms = sorted(store.symbols()["symbol"])
     if not args.no_macro:
         out["macro"] = ing.ingest_macro()
     if not args.no_sec:
@@ -266,6 +271,10 @@ def main(argv=None):
     sp.add_argument("--dolthub", metavar="EXPORT_DIR",
                     help="whole-market US bars from a DoltHub export (see `bigboss dolthub-sync`) + point-in-time universe")
     sp.add_argument("--dolthub-top", type=int, default=500)
+    sp.add_argument("--etf-file", metavar="CSV", help="bulk ETF prices CSV (fund_symbol,price_date,...,adj_close,volume)")
+    sp.add_argument("--etf-meta", metavar="CSV", help="ETF metadata CSV with fund_category (used as sector)")
+    sp.add_argument("--etf-top", type=int, default=100)
+    sp.add_argument("--etf-start", default=None)
     sp.add_argument("--dolthub-start", default="2014-04-01", help="DoltHub's split table starts 2014-03; earlier splits are missing")
     sp.add_argument("--universe-from", default="2018-09-07",
                     help="first universe date; before 2018-09-07 DoltHub only has names that survived to 2018 ('none' = no limit)")
