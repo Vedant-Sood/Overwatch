@@ -6,7 +6,28 @@ Experiments reported:
 2. **Part 1b - real US large caps** (FMP, dividend-adjusted), 2008-2023 out of sample - survivorship-biased universe.
 3. **Part 1c - real point-in-time US universe** (Massive whole-market bars, top-500 by trailing liquidity, delisted names
    included), Aug 2025 - Jul 2026 out of sample.
-4. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
+4. **Parts 1d-1j** - 24 US ETFs; 10 Indian large caps; DoltHub survivorship-free US top-500 (2018-2026) and a
+   2014-2026 sensitivity run; a point-in-time top-100 ETF universe; the **historical S&P 500** (2015-2024) and the
+   **historical NIFTY 50** (2011-2024).
+5. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
+
+> **Correction (2026-10-24): look-ahead in the equal-weight baseline.** In every experiment with a point-in-time
+> universe (Parts 1c, 1f, 1g, 1h), the *equal-weight* baseline held every symbol that was **ever** in the universe,
+> including names before they joined it (e.g. Airbnb in 2021, two years before it entered the S&P 500). Found when the
+> S&P 500 equal-weight result beat the real equal-weight ETF (RSP) by 3.6-6.5%/yr. Fixed (`equal_weight_strategy` now
+> uses the dated membership) and recomputed for all affected experiments (`bigboss recompute-equal-weight`); the old
+> values are kept in each `summary.json` as `equal_weight_static_universe_bug`. Momentum/low-vol baselines and all model
+> strategies were not affected (they choose from the membership-filtered dataset). The equal-weight rows in the
+> cost-sensitivity tables of those experiments predate the fix.
+>
+> | experiment | equal weight before | after |
+> |---|---|---|
+> | 1c US top-500 (2025-26) | +10.7%/yr | **+5.9%/yr** |
+> | 1f DoltHub top-500 (2020-25) | +1.5%/yr | **−3.5%/yr** |
+> | 1g sensitivity (2016-24) | +3.1%/yr | **−1.8%/yr** |
+> | 1h ETF top-100 (2006-19) | −3.1%/yr | **−3.9%/yr** |
+> | 1i S&P 500 (2015-24) | +0.5%/yr | **−2.9%/yr** (RSP-consistent) |
+> | 1j NIFTY 50 (2011-24) | +5.0%/yr | **−0.4%/yr** |
 
 ---
 
@@ -163,7 +184,7 @@ demonstrates why a point-in-time universe is required (Part 1c).
 
 | strategy | h = 5: ann. excess | IR | h = 20: ann. excess | IR |
 |---|---|---|---|---|
-| equal weight of PIT universe | +10.7% | 0.89 | +10.7% | 0.89 |
+| equal weight of PIT universe (corrected) | +5.9% | 0.55 | +5.9% | 0.55 |
 | 12-1 momentum top-10 | +92.3% | 1.56 (DSR 0.43) | same | same |
 | low-vol top-10 | −18.2% | −1.68 | same | same |
 | model: ridge | +37.2% | 1.19 | +11.4% | 0.64 |
@@ -181,14 +202,16 @@ ridge 0.007 → 0.016; MLP 0.010 → 0.063 (t 1.71); momentum rule −0.073 (sho
 
 1. **No statistically detectable forecast skill** at either horizon (all |IC t| < 2). The impressive-looking model
    returns are market exposure: the ungated ensemble (+13-16%/yr vs SPY) roughly matches equal weight of the same
-   point-in-time universe (+10.7%), which beat SPY because mid/large caps beyond the mega caps outperformed in this window.
+   point-in-time universe (+5.9% after the 2026-10-24 correction; +10.7% as first reported), which beat SPY because
+   mid/large caps beyond the mega caps outperformed in this window.
    The ungated models also ran betas above 1 against SPY (ensemble 1.39 at h = 5 and 1.07 at h = 20; ridge up to 1.96),
    so part of their excess return is simply leverage to a rising market.
 2. **The gate behaved correctly.** With no demonstrated skill the gated ensemble mostly stayed in SPY (turnover 0.9-1.1)
    and ended near zero (−3.6% / +0.8%). The production rule refused to bet on noise.
 3. **Survivorship bias, measured.** A first run had a bug: a global 260-day history filter silently dropped 57 of the 87
    delisted members. Fixing it lowered equal weight's excess from +13.2% to +10.7%/yr. That **2.5%/yr is the measured
-   survivorship bonus** in this window, and it is why Part 1b's hand-picked universe cannot be trusted.
+   survivorship bonus** in this window, and it is why Part 1b's hand-picked universe cannot be trusted. (Both numbers
+   were measured with the equal-weight look-ahead later corrected; treat the 2.5% as indicative.)
 4. **Eleven months is too short.** Momentum top-10's +92% has a Deflated Sharpe of only 0.43, and the ablation swings by
    ±1 IR when single groups are removed (fundamentals: IC 0.026 → 0.003 when removed, the first hint they help, but at t < 1).
    No feature conclusions are warranted. Any model trained on this window would fail the sample-size and economic gates,
@@ -283,7 +306,7 @@ Forecast skill: no model was significant (ensemble IC 0.019, t 0.72; momentum ru
 | strategy | ann. return | ann. excess vs SPY | IR | beta | max DD | Deflated SR |
 |---|---|---|---|---|---|---|
 | SPY | 16.7% | – | – | 1.00 | −23.5% | – |
-| equal weight of PIT universe | 18.5% | +1.5% | 0.21 | 1.08 | −29.5% | 0.12 |
+| equal weight of PIT universe (corrected) | 13.5% | −3.5% | −0.39 | – | −29.5% | – |
 | **12-1 momentum top-10** | **56.8%** | **+39.8%** | 0.89 | 1.64 | **−59.0%** | 0.64 |
 | low-vol top-10 | 4.9% | −12.1% | −0.91 | – | −15.7% | 0.00 |
 | model: ridge | 14.0% | −3.0% | −0.13 | 1.12 | −35.6% | 0.03 |
@@ -309,7 +332,7 @@ LightGBM −0.008 / −0.28. 80% intervals covered 79-80%. Brier scores worse th
    yfinance, so it is not a data error. But it is a concentrated speculative bet: beta 1.64, a −59% drawdown, a flat
    2023, and a Deflated Sharpe of 0.64 after 12 strategies. Not significant, and not something the decision engine
    should adopt on this evidence.
-4. **Equal weight of the point-in-time universe beat SPY by only 1.5%/yr** (vs +10.7% in Part 1c's 11 months): it
+4. **Equal weight of the point-in-time universe trailed SPY by 3.5%/yr** (corrected; first reported as +1.5%): it
    won in high-volatility bull markets (+15%/yr) and lost in calm bull markets (−7%/yr) as mega-caps led.
 5. **Costs are irrelevant to the conclusion.** At 0x to 3x costs the ensemble's excess moved from −4.2% to −4.8%.
 
@@ -321,16 +344,16 @@ construction. It is reported only to measure that bias and the robustness of Par
 
 | window | equal weight | momentum top-10 | ensemble (ungated) | ensemble (gated) | LightGBM |
 |---|---|---|---|---|---|
-| biased run, 2016-03 → 2018-08 (survivor-only universe) | **+6.3%** | +5.7% | +0.7% | −0.3% | +6.3% |
-| biased run, 2018-09 → 2020-05 | −1.3% | +10.2% | +8.3% | 0.0% | +16.4% |
-| biased run, 2020-06 → 2024-11 | +2.9% | **+17.2%** | −6.6% | −1.7% | −8.0% |
-| Part 1f (clean), 2020-06 → 2024-11 | +1.2% | **+34.6%** | −6.1% | −0.6% | −4.5% |
+| biased run, 2016-03 → 2018-08 (survivor-only universe) | −0.8% (was +6.3%) | +5.7% | +0.7% | −0.3% | +6.3% |
+| biased run, 2018-09 → 2020-05 | −2.0% (was −1.3%) | +10.2% | +8.3% | 0.0% | +16.4% |
+| biased run, 2020-06 → 2024-11 | −2.5% (was +2.9%) | **+17.2%** | −6.6% | −1.7% | −8.0% |
+| Part 1f (clean), 2020-06 → 2024-11 | −3.7% (was +1.2%) | **+34.6%** | −6.1% | −0.6% | −4.5% |
 
 (annual excess return vs SPY in each window)
 
-1. **Survivor-only history flatters results.** Equal weight of the 2016-18 survivor universe beat SPY by 6.3%/yr,
-   against +1-3% in the survivorship-free windows. That is the expected direction and size (Part 1c measured 2.5%/yr
-   in one year), though different market periods also differ.
+1. **~~Survivor-only history flatters results.~~ Retracted after the equal-weight correction.** The +6.3%/yr came
+   from the equal-weight look-ahead. Corrected, the survivor-only window shows −0.8%/yr against −2.0% to −3.7% in the
+   survivorship-free windows: at most a small effect, not distinguishable from the different market periods.
 2. **The momentum result is fragile.** On the same 2020-06 → 2024-11 window and the same data, momentum top-10 earned
    +34.6%/yr in one run and +17.2%/yr in the other. The main difference is *which days* the 20-day rebalances fall on
    (the runs start on different dates). A 10-stock bet on speculative winners is that sensitive to timing, which is
@@ -350,7 +373,7 @@ construction. It is reported only to measure that bias and the robustness of Par
 | strategy | ann. return | ann. excess vs SPY | IR | beta | max DD |
 |---|---|---|---|---|---|
 | SPY | 8.1% | – | – | 1.00 | −55.2% |
-| equal weight of the 100 | 5.0% | −3.1% | −0.53 | 0.77 | −49.4% |
+| equal weight of the 100 (corrected) | 4.2% | −3.9% | −0.62 | – | −48.5% |
 | 12-1 momentum top-10 | 1.0% | −7.0% | −0.39 | – | −49.2% |
 | low-vol top-10 | 2.3% | −5.7% | −0.37 | – | −4.2% |
 | model: shrunk hist. mean | 7.8% | −0.3% | −0.07 | 0.94 | −50.4% |
@@ -372,7 +395,8 @@ MLP −0.004 / −0.14. Interval coverage 76-82%; Brier worse than climatology.
    folds, **all of them in 2006-2008**, and never again. The gated ensemble traded in those years and then held SPY,
    ending at +0.2%/yr. This is the gate working as designed: it stopped betting when the evidence went away.
 3. **Diversifying away from SPY cost money in this era.** Equal weight of the 100 most-traded ETFs (bonds,
-   international, sectors, commodities) trailed SPY by 3.1%/yr: 2009-2019 was a US large-cap decade.
+   international, sectors, commodities) trailed SPY by 3.9%/yr (corrected; first reported as 3.1%): 2009-2019 was a
+   US large-cap decade.
 4. **The ML models were worse than the linear ones**, as in every real dataset so far: LightGBM −2.2%/yr, MLP −4.1%/yr.
 
 ### Model training and promotion (2026-10-23)
@@ -394,6 +418,81 @@ research-only.
 The gates were not loosened to find a passing model: changing the rule after seeing these results would be data
 snooping. A new rule would have to be fixed in advance and tested on the untouched holdouts (ETF: 2019-02 → 2021-11;
 stocks: 2025-07 → 2026-10).
+
+# Part 1i - Real data: the historical S&P 500, 2015-2024 (experiment `20261024T074119-eed7`)
+
+| item | value |
+|---|---|
+| universe | **actual S&P 500 membership on each date** from `Vedant-Sood/sp500dataset` (fja05680/sp500: every composition since 1996), from 2014-01-02; 897 distinct members in the store |
+| prices | DoltHub (split/dividend-adjusted by BigBoss; 58 unrecorded splits corrected after yfinance verification) and, where DoltHub lacks a name, the Kaggle 2017 dataset in Training-Data (total-return closes; matches DoltHub within 0-20 bp/yr) - chosen per day |
+| coverage | share of member-days with a price: 2014 90.7%, 2015 92.7%, 2016 96.4%, 2017 97.8%, 2018 96.6%, 2019-2026 ≥ 99.5%. The 44 unpriced tickers are pre-2018 acquisitions (DTV, EMC, BRCM, KRFT, ...), so the residual bias in 2015-2018 is upward |
+| validation | equal weight of the members, computed directly from these prices, returned 10.5%/yr in 2018-2020 vs ~10.4% for RSP (the real equal-weight S&P 500 ETF); the corrected backtest equal weight trails SPY by 2.9%/yr over 2015-2024, as RSP did |
+| OOS | **2015-03-26 → 2024-06-04** (9.2 years, 37 quarterly retrains); holdout from 2024-06-05 untouched |
+
+| strategy | ann. return | ann. excess vs SPY | IR | beta | max DD | Deflated SR |
+|---|---|---|---|---|---|---|
+| SPY | 12.9% | – | – | 1.00 | −33.7% | – |
+| equal weight of members (corrected) | 10.0% | −2.9% | −0.41 | 1.01 | −39.3% | 0.00 |
+| 12-1 momentum top-10 | 6.4% | −6.5% | −0.18 | 1.20 | −48.8% | 0.01 |
+| low-vol top-10 | 7.0% | −5.9% | −0.48 | 0.54 | −23.1% | 0.00 |
+| **model: shrunk hist. mean** | **16.0%** | **+3.1%** | 0.59 | 1.05 | −29.6% | 0.55 |
+| model: ridge | 9.1% | −3.8% | −0.24 | 1.09 | −39.5% | 0.01 |
+| model: LightGBM | 7.5% | −5.4% | −0.21 | 1.23 | −43.5% | 0.01 |
+| model: MLP | 6.0% | −6.8% | −0.29 | 1.12 | −56.5% | 0.01 |
+| ensemble (ungated) | 5.2% | −7.7% | −0.58 | 1.12 | −41.5% | 0.00 |
+| **ensemble (gated)** | 10.5% | **−2.4%** | −0.49 | 1.03 | −33.7% | 0.00 |
+
+Forecast skill (rank IC / t): hist. mean 0.027 / 1.86, ensemble 0.019 / 0.97, LightGBM 0.017 / 0.92, MLP 0.010 / 0.46,
+ridge 0.009 / 0.60. The gate's skill test passed in 8 of 37 folds (2020-2023 only).
+
+**Findings**
+
+1. **No reliable skill in S&P 500 stocks.** The ML ensemble trailed SPY by 7.7%/yr; the gated rule lost 2.4%/yr.
+2. **The one positive model is an era bet.** The shrunk historical mean (+3.1%/yr, PSR 0.96, Deflated SR 0.55 - not
+   significant after 12 strategies) earned all of it in 2020, 2023 and 2024 (+20%, +18%, +9% vs SPY), the mega-cap
+   growth rallies, and trailed SPY in 6 of 10 years. It tilts toward past winners; it is not an edge to deploy.
+3. **The data and engine now reproduce reality:** equal weight trails SPY like RSP did. This check found the
+   equal-weight look-ahead bug (see the correction at the top).
+
+---
+
+# Part 1j - Real data: the historical NIFTY 50, 2011-2024 (experiment `20261024T075258-c4fe`)
+
+| item | value |
+|---|---|
+| universe | **actual NIFTY 50 constituents** on each date (Bera 2025, "Historical Nifty 50 Constituent Weights", doi:10.6084/m9.figshare.30217915, CC BY-NC-SA 4.0), from 2008-01-31: 100 stocks incl. Satyam, Ranbaxy, Reliance Communications, Unitech, Suzlon, Cairn, HDFC, IDFC |
+| prices | yfinance (83 stocks) and NSE's own archive via jugaad-data (17, incl. every delisted name); **all price returns without dividends**, matching the ^NSEI price-index benchmark. NSE raw prices: 4 splits/bonuses neutralised (HDFC 5:1 2010, McDowell 5:1 2018 confirmed by yfinance, two 2006 events); 7 large moves kept as real (Satyam's 2008-09 scandal moves, Indiabulls Housing 2019/2020 and Reliance Power 2019 confirmed by yfinance, Jaiprakash Associates 2009 by its unchanged share volume) |
+| coverage | **100% of index weight priced in every year** |
+| validation | the index rebuilt from the weights and these prices tracks ^NSEI with daily correlation **0.9988**, tracking error 0.96%/yr, 7.74%/yr vs 7.60%/yr (2008-2026) |
+| OOS | **2011-03-04 → 2024-01-05** (13 years, 150 monthly retrains); holdout from 2024-01-08 untouched; costs include India STT |
+
+| strategy | ann. return | ann. excess vs NIFTY | IR | max DD | Deflated SR |
+|---|---|---|---|---|---|
+| NIFTY 50 (^NSEI) | 11.2% | – | – | −37.6% | – |
+| equal weight of members (corrected) | 10.9% | −0.4% | −0.04 | −40.6% | 0.03 |
+| 12-1 momentum top-k | 9.8% | −1.5% | −0.09 | −37.0% | 0.02 |
+| low-vol top-k | 13.6% | +2.4% | 0.20 | −29.8% | 0.17 |
+| model: ridge | 11.5% | +0.3% | 0.05 | −38.6% | 0.07 |
+| model: LightGBM | 13.7% | +2.4% | 0.27 | −38.4% | 0.24 |
+| **model: XGBoost** | **15.2%** | **+3.9%** | 0.42 | −36.1% | 0.43 |
+| model: MLP | 12.0% | +0.7% | 0.11 | −39.3% | 0.10 |
+| ensemble (ungated) | 11.5% | +0.2% | 0.06 | −40.8% | 0.07 |
+| **ensemble (gated)** | 12.5% | **+1.3%** | 0.22 | −41.3% | 0.19 |
+
+Forecast skill (rank IC / t): **ensemble 0.040 / 2.29, MLP 0.048 / 2.62, XGBoost 0.041 / 2.49**, ridge 0.030 / 1.92,
+LightGBM 0.026 / 1.59. The gate's skill test passed in **125 of 150 folds** (every year from 2013).
+
+**Findings**
+
+1. **The first persistent, statistically significant stock-ranking skill in any real test.** Unlike the US tests,
+   where skill was absent or faded, NIFTY 50 rankings were significant for the ensemble and two ML models, and the
+   skill test passed in nearly every fold from 2013 to 2023. A less efficient market is the plausible explanation.
+2. **It barely pays after Indian costs.** The gated ensemble earned +1.3%/yr (IR 0.22, Deflated SR 0.19); at 2x the
+   cost estimates it falls to −0.1%/yr. Its turnover (1.3x/yr; 2.3x/yr at zero cost) eats most of the edge.
+3. **XGBoost alone looks best (+3.9%/yr, PSR 0.93) but is not significant** after 12 strategies (Deflated SR 0.43),
+   and lost 10% to the index in 2018. Picking it after the fact would be data snooping.
+4. **The obvious next experiment:** a lower-turnover rule (longer holding, wider no-trade band) fixed in advance and
+   tested once on the untouched 2024-01 → 2025-08 holdout.
 
 ---
 
