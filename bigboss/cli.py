@@ -65,6 +65,11 @@ def cmd_ingest(args):
                                      progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
         print(f"sp500 history: {json.dumps(r, default=str)}")
         syms = sorted(store.symbols()["symbol"])
+    if getattr(args, "nifty_weights", None):
+        r = ing.ingest_nifty_history(args.nifty_weights, args.nifty_sectors, pd.read_csv(args.nifty_plan),
+                                     progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+        print(f"nifty history: {json.dumps(r, default=str)}")
+        syms = sorted(store.symbols()["symbol"])
     if getattr(args, "etf_file", None):
         r = ing.ingest_etf_file(args.etf_file, args.etf_meta, top_n=args.etf_top, start=args.etf_start,
                                 progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
@@ -281,6 +286,9 @@ def main(argv=None):
     sp.add_argument("--sp500-prices", metavar="DOLTHUB_EXPORT", help="DoltHub export dir used to price S&P members")
     sp.add_argument("--kaggle-dir", metavar="DIR", help="Kaggle 'Huge Stock Market Dataset' Stocks/ dir (fills names DoltHub lacks)")
     sp.add_argument("--index-start", default="2014-01-02")
+    sp.add_argument("--nifty-weights", metavar="CSV", help="Historical NIFTY 50 constituent weights (weights.csv)")
+    sp.add_argument("--nifty-sectors", metavar="CSV", help="sectors.csv from the same dataset")
+    sp.add_argument("--nifty-plan", metavar="CSV", help="ticker,source,symbol: where to fetch each constituent's prices")
     sp.add_argument("--etf-file", metavar="CSV", help="bulk ETF prices CSV (fund_symbol,price_date,...,adj_close,volume)")
     sp.add_argument("--etf-meta", metavar="CSV", help="ETF metadata CSV with fund_category (used as sector)")
     sp.add_argument("--etf-top", type=int, default=100)
