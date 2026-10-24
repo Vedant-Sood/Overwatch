@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from bigboss.data.providers.index_membership import (choose_sources, coverage_by_year, daily_membership, nifty_snapshots,
+from bigboss.data.providers.index_membership import (assign_symbols, candidate_prices, coverage_by_year, daily_membership, nifty_snapshots,
                                                      sp500_snapshots, spans)
 
 
@@ -32,15 +32,17 @@ def test_nifty_snapshots_and_weighted_coverage(tmp_path):
     assert abs(cov[2008] - (20 * 1.0 + 4 * 0.7) / 24) < 1e-9
 
 
-def test_choose_sources_prefers_best_coverage(tmp_path):
-    d = pd.bdate_range("2014-01-01", "2016-12-30")
-    dh = pd.DataFrame({"symbol": "AAA", "date": d, "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "adj_close": 1.0, "volume": 1.0})
+def test_per_day_source_assignment_prefers_dolthub_and_falls_back_to_kaggle(tmp_path):
+    k_days = pd.bdate_range("2014-01-01", "2017-11-10")
+    d_days = pd.bdate_range("2018-02-26", "2019-11-20")        # e.g. Celgene: DoltHub history starts 2018
+    dh = pd.DataFrame({"symbol": "CELG", "date": d_days, "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "adj_close": 1.0,
+                       "volume": 1.0})
     kd = tmp_path / "Stocks"
     kd.mkdir()
-    pd.DataFrame({"Date": d.strftime("%Y-%m-%d"), "Open": 2.0, "High": 2.0, "Low": 2.0, "Close": 2.0, "Volume": 5,
-                  "OpenInt": 0}).to_csv(kd / "bbb.us.txt", index=False)
-    sp = pd.DataFrame({"ticker": ["AAA", "BBB", "CCC"], "start": pd.Timestamp("2014-01-01"), "end": pd.Timestamp("2016-06-01")})
-    px, m = choose_sources(sp, dh, kd, pd.Timestamp("2014-01-01"))
-    m = m.set_index("ticker")
-    assert m.at["AAA", "source"] == "dolthub" and m.at["BBB", "source"] == "kaggle" and m.at["BBB", "symbol"] == "BBB@K"
-    assert pd.isna(m.at["CCC", "symbol"]) and set(px["symbol"]) == {"AAA", "BBB@K"}
+    pd.DataFrame({"Date": k_days.strftime("%Y-%m-%d"), "Open": 2.0, "High": 2.0, "Low": 2.0, "Close": 2.0, "Volume": 5,
+                  "OpenInt": 0}).to_csv(kd / "celg.us.txt", index=False)
+    px = candidate_prices(["CELG", "ENRNQ"], dh, kd)
+    md = pd.DataFrame({"date": pd.to_datetime(["2016-06-01", "2018-01-02", "2018-06-01", "2016-06-01"]),
+                       "ticker": ["CELG", "CELG", "CELG", "ENRNQ"]})
+    sym = assign_symbols(md, px)
+    assert list(sym.fillna("-")) == ["CELG@K", "-", "CELG", "-"]   # Kaggle, gap (unpriced), DoltHub, no data
