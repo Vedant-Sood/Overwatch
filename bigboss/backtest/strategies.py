@@ -22,9 +22,21 @@ def benchmark_strategy(bench: str):
     return fn
 
 
-def equal_weight_strategy(md: MarketData, universe: list[str]):
+def equal_weight_strategy(md: MarketData, universe: list[str], candidates: pd.DataFrame | None = None):
+    """Equal weight of the names available at d. `candidates` (the dataset frame, already restricted to the
+    point-in-time universe) limits the choice to names that are members on d; without it every symbol in `universe` is
+    eligible, which is only correct for a fixed universe (a name held before it joins an index is look-ahead)."""
+    members = None
+    if candidates is not None:
+        members = candidates.index.to_frame(index=False).groupby("date")["symbol"].apply(set)
+
     def fn(d, cur_w, ctx):
-        avail = [s for s in universe if s in md.adj.columns and pd.notna(md.adj.at[d, s])
+        pool = universe
+        if members is not None:
+            if d not in members.index:
+                return None
+            pool = [s for s in universe if s in members[d]]
+        avail = [s for s in pool if s in md.adj.columns and pd.notna(md.adj.at[d, s])
                  and md.adj[s].loc[:d].notna().sum() > 60]
         return pd.Series(1.0 / len(avail), index=avail) if avail else None
     return fn

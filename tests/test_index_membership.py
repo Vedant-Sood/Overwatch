@@ -46,3 +46,21 @@ def test_per_day_source_assignment_prefers_dolthub_and_falls_back_to_kaggle(tmp_
                        "ticker": ["CELG", "CELG", "CELG", "ENRNQ"]})
     sym = assign_symbols(md, px)
     assert list(sym.fillna("-")) == ["CELG@K", "-", "CELG", "-"]   # Kaggle, gap (unpriced), DoltHub, no data
+
+
+def test_equal_weight_holds_only_point_in_time_members():
+    import numpy as np
+
+    from bigboss.backtest.engine import MarketData
+    from bigboss.backtest.strategies import equal_weight_strategy
+
+    d = pd.bdate_range("2020-01-01", periods=100)
+    adj = pd.DataFrame(np.ones((100, 3)), index=d, columns=["OLD", "NEW", "SPY"])
+    md = MarketData(adj, adj, adj, pd.DataFrame({"asset_class": "equity", "sector": "x"}, index=adj.columns), "SPY")
+    # NEW joins the universe only on d[90]; OLD is a member throughout
+    rows = [(x, "OLD") for x in d] + [(x, "NEW") for x in d[90:]]
+    frame = pd.DataFrame(index=pd.MultiIndex.from_tuples(rows, names=["date", "symbol"]))
+    fn = equal_weight_strategy(md, ["OLD", "NEW"], frame)
+    assert list(fn(d[80], None, {}).index) == ["OLD"]               # not yet a member: never held early
+    assert set(fn(d[95], None, {}).index) == {"OLD", "NEW"}
+    assert set(equal_weight_strategy(md, ["OLD", "NEW"])(d[80], None, {}).index) == {"OLD", "NEW"}  # static universe

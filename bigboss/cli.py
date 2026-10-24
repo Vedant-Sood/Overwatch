@@ -252,6 +252,16 @@ def cmd_export_qc(args):
     print(f"wrote {args.out}/ (weights.csv, signals.csv, main.py, manifest.json, README.md)")
 
 
+def cmd_recompute_ew(args):
+    from bigboss.backtest.experiment import recompute_equal_weight
+    from bigboss.data.store import Store
+
+    cfg = get_config()
+    r = recompute_equal_weight(Store.for_mode(cfg.data_dir, "OBSERVED"), cfg, args.experiment)
+    keys = ("ann_return", "ann_excess_return", "information_ratio", "max_drawdown")
+    print(json.dumps({k: {x: r[k].get(x) for x in keys} for k in ("old", "new")}, indent=1))
+
+
 def cmd_qc_compare(args):
     from bigboss.integrations.quantconnect import compare
 
@@ -343,6 +353,8 @@ def main(argv=None):
     sp.add_argument("--out", required=True, help="output folder")
     sp.add_argument("--strategy", default="ensemble_gated", help="strategy whose weights to replay")
     sp.add_argument("--model", default="ensemble", help="model whose forecasts go into signals.csv")
+    sp = add("recompute-equal-weight", cmd_recompute_ew, synthetic=False)
+    sp.add_argument("--experiment", required=True)
     sp = add("qc-compare", cmd_qc_compare, synthetic=False)
     sp.add_argument("--experiment", required=True)
     sp.add_argument("--qc-results", required=True, help="QuantConnect backtest result JSON")
