@@ -59,6 +59,12 @@ def cmd_ingest(args):
                                       progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
         print(f"dolthub market: {json.dumps(r, default=str)}")
         syms = sorted(store.symbols()["symbol"])
+    if getattr(args, "sp500_history", None):
+        r = ing.ingest_sp500_history(args.sp500_history, args.sp500_prices, args.kaggle_dir, start=args.index_start,
+                                     verify_splits=args.verify_splits,
+                                     progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
+        print(f"sp500 history: {json.dumps(r, default=str)}")
+        syms = sorted(store.symbols()["symbol"])
     if getattr(args, "etf_file", None):
         r = ing.ingest_etf_file(args.etf_file, args.etf_meta, top_n=args.etf_top, start=args.etf_start,
                                 progress=lambda f, m: print(f"  [{f:4.0%}] {m}", file=sys.stderr))
@@ -271,6 +277,10 @@ def main(argv=None):
     sp.add_argument("--dolthub", metavar="EXPORT_DIR",
                     help="whole-market US bars from a DoltHub export (see `bigboss dolthub-sync`) + point-in-time universe")
     sp.add_argument("--dolthub-top", type=int, default=500)
+    sp.add_argument("--sp500-history", metavar="CSV", help="'S&P 500 Historical Components & Changes (Updated).csv'")
+    sp.add_argument("--sp500-prices", metavar="DOLTHUB_EXPORT", help="DoltHub export dir used to price S&P members")
+    sp.add_argument("--kaggle-dir", metavar="DIR", help="Kaggle 'Huge Stock Market Dataset' Stocks/ dir (fills names DoltHub lacks)")
+    sp.add_argument("--index-start", default="2014-01-02")
     sp.add_argument("--etf-file", metavar="CSV", help="bulk ETF prices CSV (fund_symbol,price_date,...,adj_close,volume)")
     sp.add_argument("--etf-meta", metavar="CSV", help="ETF metadata CSV with fund_category (used as sector)")
     sp.add_argument("--etf-top", type=int, default=100)
