@@ -1,5 +1,5 @@
 # BigBoss configuration template.
-# Copy to configs/local.toml (git-ignored) and point BIGBOSS_CONFIG at it to override.
+# To override, copy to configs/local.toml (git-ignored, loaded automatically) or point BIGBOSS_CONFIG at another file.
 # Nothing in here enables real-money trading.
 
 [paths]

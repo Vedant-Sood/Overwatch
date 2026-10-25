@@ -6,7 +6,11 @@ Experiments reported:
 2. **Part 1b - real US large caps** (FMP, dividend-adjusted), 2008-2023 out of sample - survivorship-biased universe.
 3. **Part 1c - real point-in-time US universe** (Massive whole-market bars, top-500 by trailing liquidity, delisted names
    included), Aug 2025 - Jul 2026 out of sample.
-4. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
+4. **Part 1d - real US ETFs** (yfinance, dividend-adjusted), 2002-2022 out of sample.
+5. **Part 1e - real Indian large caps** (yfinance), 2010-2023 out of sample - survivorship-biased universe.
+6. **Part 1f - real survivorship-free US top-500** (DoltHub, delisted names included), 2020-2025 out of sample, with
+   **Part 1g**, a 2014-2026 sensitivity run that adds DoltHub's survivor-only pre-2018 history.
+7. **Part 2 - synthetic market** with a *known* planted signal, used to test the machinery (leakage, calibration, costs).
 
 ---
 
@@ -438,8 +442,8 @@ costs correctly.
 
 ## Not yet done
 
-* Stock-level real-data experiments (US large caps, ETFs, NSE) - needs a free Massive/FMP/Alpha Vantage key or Stooq/Yahoo access.
+* Survivorship-free stock-level history before 2018 (no free source tested has it; see `docs/DATA_SOURCES.md`).
 * Objective comparison across risk measures (variance vs CVaR vs drawdown) on real data.
 * Hyperparameter search (Optuna + purged K-fold is wired in `backtest/splits.py` but deliberately not used, to limit
-  multiple testing until real data is available).
+  multiple testing while no real dataset shows skill).
 * GPU benchmarks on the RTX 4060.

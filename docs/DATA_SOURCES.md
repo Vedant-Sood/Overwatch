@@ -15,7 +15,8 @@ validated, and (where possible) cross-checked against a second source.
 | Macro, rates, FX, cross-asset proxies | **FRED** (keyless CSV), Treasury Fiscal Data, World Bank | verified | Long history, official |
 | News | Massive news (with sentiment), GDELT (keyless) | verified | Research/agents only - not a model input |
 
-Provider order is set in `configs/bigboss.toml` (`[data] price_providers`): `yfinance` first, then `fmp`, then `massive`.
+Provider order is set in `configs/bigboss.toml` (`[data] price_providers`): `fred_xa` (only for `XA:*` proxies), then
+`yfinance`, then `fmp`, then `massive`; `stooq`, `yahoo` and `alphavantage` are last-resort fallbacks.
 
 ## yfinance - can BigBoss use it? Yes, with caveats
 
