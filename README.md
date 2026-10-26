@@ -356,6 +356,11 @@ Known limitations (honest list):
 * **Real-market evidence (see `docs/RESULTS.md`).** The strongest test - a survivorship-free US top-500 from DoltHub,
   2020-2025 out of sample, 1,330 stocks incl. 302 that stopped trading - found **no forecast skill** (every model's IC
   negative); ungated models trailed SPY by 3-13%/yr and the gated system abstained and matched SPY (−0.3%/yr).
+  A point-in-time top-100 ETF universe (2006-2019, 13 years OOS) showed skill only before 2009 (gated +0.2%/yr).
+  Models trained on both datasets failed the promotion gates; no champion exists, so forecasts are research-only.
+  On the **historical S&P 500** (actual membership, 2015-2024) no model was reliable (gated −2.4%/yr; the one positive
+  model was an era bet). On the **historical NIFTY 50** (actual constituents incl. delisted, 2011-2024) the models
+  showed significant ranking skill (ensemble IC t 2.3) but it barely survived Indian costs (gated +1.3%/yr).
   Across five other real datasets, no model showed economic value after
   costs that survives proper benchmarking and multiple-testing correction: FRED cross-asset proxies, 1992-2021
   (significant IC, gated IR −0.12); 20 US large caps, 2008-2023 (no model beat equal weight of the same survivor names);

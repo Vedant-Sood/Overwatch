@@ -64,6 +64,13 @@ directory (which starts in Oct 2017) never saw. Full daily price history (raw or
 **Kaggle "Huge Stock Market Dataset"** (not used): it ends in Nov 2017 and contains only names listed when it was
 scraped, so it cannot fix the pre-2018 survivorship gap either.
 
+## Historical index membership (verified 2026-10-24)
+
+| dataset | content | use |
+|---|---|---|
+| `Vedant-Sood/sp500dataset` (= fja05680/sp500, MIT) | every S&P 500 composition since 1996-01-02 (2,720 snapshots, 1,209 tickers, 759 removed) | point-in-time S&P 500 universe (`bigboss ingest --sp500-history ... --sp500-prices <dolthub export> --kaggle-dir <Training-Data/Stocks>`). No prices: priced from DoltHub + the Kaggle 2017 set; member-day coverage 91% (2014) → 97.8% (2017) → ≥ 99.5% (2019+). Validated: equal weight of members tracks RSP |
+| Historical Nifty 50 Constituent Weights (Bera 2025, CC BY-NC-SA 4.0, non-commercial) | NIFTY 50 constituents and weights, monthly + rebalance dates, 2008-01-31 → 2025-08-31 (100 stocks) | point-in-time NIFTY 50 universe (`--nifty-weights --nifty-sectors --nifty-plan`). Priced from yfinance and **NSE's archive (jugaad-data), which still serves delisted names** (Satyam, Ranbaxy, RCOM, ...): 100% weight coverage. Validated: rebuilt index vs ^NSEI daily correlation 0.9988 |
+
 ## Yahoo vs NSE exchange data (India cross-check)
 
 `bigboss.data.crosscheck.compare_returns` compares Yahoo's adjusted closes with NSE's raw closes (via `jugaad-data`,

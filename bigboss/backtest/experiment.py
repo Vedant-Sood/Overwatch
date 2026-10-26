@@ -102,7 +102,7 @@ def run_experiment(store: Store, cfg: Config, horizon: int | None = None, models
                     max_turnover=pf.get("max_turnover"), top_k=k, sectors=sectors)
     strategies = {
         "benchmark": benchmark_strategy(bench),
-        "equal_weight": equal_weight_strategy(md, ds.tradeable),
+        "equal_weight": equal_weight_strategy(md, ds.tradeable, ds.frame),
         "momentum_12_1_topk": factor_topk_strategy(feats, "mom_12_1", k),
         "low_vol_topk": factor_topk_strategy(feats, "vol_60", k, ascending=True),
     }
@@ -123,7 +123,7 @@ def run_experiment(store: Store, cfg: Config, horizon: int | None = None, models
             cmm = CostModel(cfg, multiplier=mult)
             for nm in ("ensemble_gated", "model_ensemble", "equal_weight"):
                 base_fn = (model_strategy(md, model_preds(run, "ensemble"), cmm, h, gate=gate if nm == "ensemble_gated" else None, **strat_kw)
-                           if nm != "equal_weight" else equal_weight_strategy(md, ds.tradeable))
+                           if nm != "equal_weight" else equal_weight_strategy(md, ds.tradeable, ds.frame))
                 r = finalize(simulate(nm, md, base_fn, sim, cmm), md, n_trials=n_trials, skip_days=sim.delay)
                 cost_sens.append({"strategy": nm, "cost_multiplier": mult, "ann_excess_return": r.summary["ann_excess_return"],
                                   "information_ratio": r.summary["information_ratio"], "ann_turnover": r.summary.get("ann_turnover")})
@@ -152,7 +152,9 @@ def run_experiment(store: Store, cfg: Config, horizon: int | None = None, models
         "assumptions": {
             "execution": f"decision at close t, fill at close t+{sim.delay}", "rebalance_every_days": sim.rebalance_every,
             "cash_rate": "0% (conservative)", "costs": cfg.section("costs"), "portfolio": pf,
-            "survivorship": "universe = configured symbols that exist today unless delisted names are added; results are biased upward by survivorship",
+            "survivorship": ("point-in-time universe from stored membership (names enter and leave on their dates)"
+                             if store.query("SELECT COUNT(*) AS n FROM universe_membership")["n"].iloc[0] else
+                             "universe = configured symbols that exist today unless delisted names are added; results are biased upward by survivorship"),
             "benchmark": f"{bench} total-return proxy (adjusted close)",
         },
         "runtime_seconds": round(time.time() - t_start, 1),
@@ -171,6 +173,41 @@ def run_experiment(store: Store, cfg: Config, horizon: int | None = None, models
     say(1.0, "done")
     log(logger, 20, "experiment complete", id=exp_id, seconds=summary["runtime_seconds"])
     return summary
+
+
+def recompute_equal_weight(store: Store, cfg: Config, exp_id: str) -> dict:
+    """Re-simulate the equal-weight baseline of a finished experiment with point-in-time membership (fix of 2026-10-24:
+    it previously held every symbol that was EVER in the universe, including names before they joined). Uses the
+    experiment's own OOS window and simulation settings; models are not retrained. The old result is kept in
+    summary.json under `equal_weight_static_universe_bug`."""
+    out_dir = cfg.data_dir / "experiments" / exp_id
+    summary = json.loads((out_dir / "summary.json").read_text())
+    bt = cfg.section("backtest")
+    ds = build_dataset(store, cfg)
+    bench = _primary_benchmark(ds)
+    prices = store.prices()
+    meta = store.symbols()
+    md = MarketData.from_prices(prices[prices["symbol"].isin(ds.tradeable + [bench])], meta, bench)
+    sim = SimConfig(rebalance_every=summary["assumptions"]["rebalance_every_days"], delay=cfg.get("forecast.execution_delay_days", 1),
+                    initial_capital=bt["initial_capital"], max_participation=cfg.get("costs.max_participation", 0.05),
+                    start=pd.Timestamp(summary["oos_start"]), end=pd.Timestamp(summary["oos_end"]))
+    cm = CostModel(cfg)
+    res = finalize(simulate("equal_weight", md, equal_weight_strategy(md, ds.tradeable, ds.frame), sim, cm), md,
+                   n_trials=summary["n_strategies_tested"], skip_days=sim.delay)
+    if "equal_weight_static_universe_bug" not in summary["strategies"]:
+        summary["strategies"]["equal_weight_static_universe_bug"] = summary["strategies"]["equal_weight"]
+    summary["strategies"]["equal_weight"] = _jsonable(res.summary)
+    summary.setdefault("corrections", []).append({"date": datetime.now(timezone.utc).isoformat(), "strategy": "equal_weight",
+                                                  "reason": "point-in-time membership not applied to the equal-weight baseline"})
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=1))
+    rets = pd.read_parquet(out_dir / "returns.parquet")
+    if "equal_weight_static_universe_bug" not in rets:
+        rets["equal_weight_static_universe_bug"] = rets["equal_weight"]
+    rets["equal_weight"] = res.returns.reindex(rets.index)
+    rets.to_parquet(out_dir / "returns.parquet")
+    if not res.weights.empty:
+        res.weights.to_parquet(out_dir / "weights_equal_weight.parquet")
+    return {"old": summary["strategies"]["equal_weight_static_universe_bug"], "new": summary["strategies"]["equal_weight"]}
 
 
 def _primary_benchmark(ds: Dataset) -> str:
