@@ -50,10 +50,12 @@ cp configs/bigboss.toml configs/local.toml   # then edit [data].sec_user_agent
 bigboss ingest --groups cross_asset --news     # keyless real data: FRED cross-asset proxies + macro + GDELT headlines
 bigboss ingest --groups us_etfs us_equities   # stock-level data: FMP_API_KEY (dividend-adjusted, long history) or Massive
 bigboss ingest --no-prices --massive-market 500 --news   # whole US market (Massive) -> point-in-time top-500 universe incl. delisted
-bigboss backtest --horizon 20 --min-train 200 --step 21 --ablation   # settings for a ~2-year history
+bigboss dolthub-sync --repo-dir ~/dolt/stocks --export-dir ~/dolt/export   # keyless survivorship-free US bars, 2018 -> today
+bigboss ingest --no-prices --dolthub ~/dolt/export --verify-splits         # ... -> point-in-time top-500 universe (docs/DATA_SOURCES.md)
 bigboss status                                # coverage, freshness, validation issues
 bigboss train --horizon 20                    # walk-forward training, registers a model version, applies promotion gates
 bigboss backtest --horizon 20 --ablation      # baselines vs models, net of costs; cost sensitivity; ablation
+bigboss backtest --horizon 20 --min-train 200 --step 21 --ablation   # shorter settings for a ~2-year history (Massive free plan)
 bigboss scan --horizon 20                     # ranked recommendations from the champion model
 bigboss research "Is MSFT attractive over the next month? What are the risks?"
 bigboss export-qc --experiment ID --out qc/   # replay an experiment in QuantConnect LEAN (docs/QUANTCONNECT.md)
@@ -68,7 +70,7 @@ is never written to, or mixed with, the observed-data store.
 
 Frontend development: `cd frontend && npm install && npm run dev` (Vite on :5173 proxies `/api` to :8000).
 
-Optional keys (environment variables, never stored in config): `MASSIVE_API_KEY`, `FMP_API_KEY`, `FINNHUB_API_KEY`,
+Optional keys (environment variables, never stored in config): `MASSIVE_API_KEY`, `FMP_API_KEY` (or `FMP_API`), `FINNHUB_API_KEY`,
 `ALPHAVANTAGE_API_KEY`, `FRED_API_KEY`. All have free tiers.
 Optional local LLM: install [Ollama](https://ollama.com), run `ollama pull llama3.1:8b`, and set `[llm] provider = "ollama"`.
 
@@ -77,7 +79,7 @@ Optional local LLM: install [Ollama](https://ollama.com), run `ollama pull llama
 ## Architecture
 
 ```
-providers (Stooq · Yahoo · Alpha Vantage · FRED · World Bank · SEC EDGAR)
+providers (yfinance · FMP · Massive · DoltHub · Stooq · Yahoo · Alpha Vantage · FRED · Treasury · World Bank · SEC EDGAR · GDELT/Finnhub news)
    │  rate limit · retries · raw-response cache · source attribution · fetched_at
    ▼
 validation (duplicates, OHLC consistency, unadjusted splits, gaps, staleness)  ──►  DuckDB store (OBSERVED | SYNTHETIC)
@@ -162,11 +164,13 @@ Recommendations and verification results per source: [`docs/DATA_SOURCES.md`](do
 | World Bank | no | annual CPI inflation and GDP growth per country | CC BY 4.0 |
 | SEC EDGAR | no (contact UA) | XBRL fundamentals and filing events | public domain; ≤10 req/s |
 | GDELT DOC 2.0 | no | recent news headlines (research/agents only, not model input) | ~1 request per 5 s; free/open, cite GDELT |
+| DoltHub `post-no-preference/stocks` | no (`dolt` CLI) | **survivorship-free** whole-US-market daily bars, splits, dividends, 2018-09 → today | raw prices, adjusted and split-checked by BigBoss; pre-2018 history is survivors only; no licence stated |
 | Massive (formerly Polygon.io) | `MASSIVE_API_KEY` | daily OHLCV for US stocks/ETFs | free tier ≈ 2 years history, 5 calls/min; split-adjusted only |
 | Financial Modeling Prep | `FMP_API` or `FMP_API_KEY` | daily OHLCV (US, many international) | free tier 250 calls/day; split-adjusted |
 | Finnhub | `FINNHUB_API_KEY` | company news (preferred over GDELT for US tickers when set) | free tier for personal use |
 | Alpha Vantage | `ALPHAVANTAGE_API_KEY` | fallback daily prices | free `TIME_SERIES_DAILY` is **unadjusted**; flagged |
 | Stooq / Yahoo chart | no | daily OHLCV incl. NSE/BSE (`.NS`/`.BO`) via Yahoo | used only where reachable; Yahoo terms restrict to personal use |
+| Local bulk files | no | ETF prices CSV (`ingest --etf-file`, `--etf-meta`) → point-in-time ETF universe | leveraged, inverse and volatility products are excluded |
 
 Not integrated (documented decision): **BLS** (needs a key from shared IPs; FRED mirrors the BLS series used),
 **RBI DBIE** (JavaScript-only portal, no documented data API) and **SEBI** (no data API). Scraping them is out of scope.
@@ -228,9 +232,9 @@ available but **not used by default**, because every extra configuration tried r
   Forecasts are scored on rank IC with an overlap-corrected t-stat, interval coverage, Brier vs climatology, and a
   calibration table. Results are also broken down by regime (ex-ante labels), by cost multiplier (0×–3×), and by
   ablation (LightGBM with each feature group removed).
-* **Survivorship bias**: the default universe is today's names. Stooq/Yahoo do not provide delisted symbols, so
-  backtests on it are biased upward. Every experiment states this. Delisted names you have data for can be added to the
-  universe, and the simulator handles their exit.
+* **Survivorship bias**: the default universe is today's names. yfinance/Stooq/Yahoo do not provide delisted symbols, so
+  backtests on it are biased upward. Every experiment states this. For a point-in-time universe that includes delisted
+  names use `ingest --dolthub` (2018 →) or `ingest --massive-market` (last ~2 years); the simulator handles their exit.
 
 ---
 
@@ -315,7 +319,7 @@ show placeholder numbers.
 
 ## CLI & API reference
 
-CLI: `bigboss {ingest, status, demo-data, train, backtest, scan, research, models, update, schedule, serve} --help`.
+CLI: `bigboss {ingest, dolthub-sync, status, demo-data, train, backtest, scan, research, models, update, schedule, export-qc, qc-compare, serve} --help`.
 
 Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/docs`):
 `GET /api/health`, `/api/data/status`, `/api/market/overview`, `/api/scanner`, `/api/research/{symbol}`, `/api/events`,
@@ -328,7 +332,7 @@ Main API routes (all accept `mode=observed|synthetic`; interactive docs at `/doc
 ## Testing
 
 ```bash
-pytest -m "not network"     # 74 tests: leakage, labels, splits, calibration, costs, metrics, optimizers,
+pytest -m "not network"     # offline suite: leakage, labels, splits, calibration, costs, metrics, optimizers,
                             # simulator accounting, SEC parsing, decisions, safety, paper broker, agents, registry, API
 pytest -m network           # live provider checks (skip cleanly when a provider is unreachable)
 cd frontend && npm run typecheck && npm run build
@@ -362,10 +366,12 @@ Known limitations (honest list):
   (significant IC, gated IR −0.12); 20 US large caps, 2008-2023 (no model beat equal weight of the same survivor names);
   a point-in-time top-500 US stock universe including delisted names, Aug 2025 - Jul 2026 (IC ≈ 0; the gated system
   stayed near SPY); 24 US ETFs, 2002-2022 (significant IC t 2.2, but best IR 0.32 with Deflated Sharpe 0.42; gated
-  0.0%); and 10 Indian large caps, 2010-2023 (no skill; equal weight's +7.4%/yr is survivorship plus a price-index benchmark). The point-in-time history is
-  only ~2 years (Massive free plan), far too short for confident conclusions.
+  0.0%); and 10 Indian large caps, 2010-2023 (no skill; equal weight's +7.4%/yr is survivorship plus a price-index benchmark). Free
+  survivorship-free history starts only in 2018 (DoltHub; Massive's free plan gives ~2 years), which is still short for
+  confident conclusions.
 * Survivorship bias: the hand-picked default universe is biased (measured at ~2.5%/yr in 2025-26). `bigboss ingest
-  --massive-market 500` builds a point-in-time universe with delisted names, limited to the data plan's history window.
+  --dolthub` (from 2018-09) and `--massive-market 500` (the data plan's history window) build point-in-time universes
+  with delisted names; before 2018 no free source tested is survivorship-free.
   FMP's free plan serves only a subset of symbols (most ETFs and NSE/BSE tickers need a paid plan).
 * Macro values use the latest vintage with conservative lags, not ALFRED real-time vintages (revisions can leak slightly).
 * Corporate actions rely on provider-adjusted prices. Alpha Vantage free data is unadjusted and is flagged.
@@ -373,7 +379,8 @@ Known limitations (honest list):
   used only for thin names. Market-impact coefficients are literature defaults, not fitted to your fills.
 * Multi-currency: each market is measured against its own benchmark in local currency. FX translation of a mixed
   USD/INR portfolio is not yet modelled in the simulator.
-* News: only SEC filings are ingested automatically. General financial news has no licensed free feed, so it is not scraped.
+* News: SEC filings are ingested automatically; headlines (Finnhub, Massive or GDELT) only with `ingest --news`, and they
+  feed the research agents, not the models. Nothing is scraped.
 * Event study effects need ≥ 8 past events per type to be marked reliable.
 * Paper fills use daily closes (no intraday simulation). The scheduler is a simple loop, not a durable job queue.
 * The MLP and XGBoost paths are tested on CPU here. CUDA selection is automatic but was not exercised in development.
