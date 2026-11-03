@@ -1,5 +1,9 @@
 # BigBoss: Local-First AI Investment Research Platform
 
+Repository: **Overwatch**. Application, Python package and CLI: **BigBoss**.
+Start with the [first-run guide](docs/GETTING_STARTED.md) or
+[documentation index](docs/README.md).
+
 BigBoss is a research and paper-trading platform. It forecasts **probability distributions of benchmark-relative
 returns**, prices in **realistic trading costs**, turns forecasts into **economically justified decisions**
 (BUY / HOLD / REDUCE / SELL / AVOID / INSUFFICIENT EVIDENCE), builds **risk-constrained portfolios**, and tests
@@ -37,6 +41,8 @@ available, and everything also runs on CPU.
 
 ```bash
 # Ubuntu / WSL2
+git clone https://github.com/Vedant-Sood/Overwatch.git
+cd Overwatch
 bash scripts/setup.sh            # venv + pip install -e ".[dev,xgb,tune]" + dashboard build
 source .venv/bin/activate
 # Windows PowerShell:  .\scripts\setup.ps1
