@@ -128,6 +128,11 @@ def test_api_end_to_end(synth_service):
     assert c.post("/api/portfolio/propose", json={"mode": "synthetic", "profile": "balanced"}).status_code == 400
     assert c.get("/api/research/NOPE?mode=synthetic").status_code == 409
     assert c.get("/api/backtests/..%2F..%2Fetc").status_code in (400, 404)
+    assert c.get("/api/backtests/..%5C..%5Cetc").status_code == 400  # Windows-style traversal
+    assert c.post("/api/models/..%5Cx/promote", json={"mode": "synthetic"}).status_code == 400
+    assert c.get("/api/health", headers={"host": "attacker.example"}).status_code == 400  # DNS rebinding guard
+    bad_trade = {"symbol": "SYN002", "side": "HOLD", "notional": 100}
+    assert c.post(f"/api/paper/accounts/{acc}/rebalance", json={"mode": "synthetic", "trades": [bad_trade], "confirm": True}).status_code == 422
 
 
 def test_economic_gate_and_research_only_mode(synth_service):
