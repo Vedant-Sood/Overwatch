@@ -7,11 +7,13 @@ label simulated data. Long tasks run as background jobs (/api/jobs/*).
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -31,10 +33,26 @@ from bigboss.service import BigBoss, NoDataError, NoModelError, _clean
 cfg = get_config()
 app = FastAPI(title="BigBoss API", version=__version__)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["*"], allow_headers=["*"])
+# The API has no authentication and is meant to be reached on loopback only. Rejecting unknown Host headers blocks
+# DNS-rebinding attacks, where a web page re-points its own domain at 127.0.0.1 to call this API from the browser.
+# `bigboss serve --host <non-loopback>` (or BIGBOSS_ALLOWED_HOSTS) widens the list explicitly.
+_DEFAULT_HOSTS = ["localhost", "127.0.0.1", "testserver"]
+_extra_hosts = [h.strip() for h in os.environ.get("BIGBOSS_ALLOWED_HOSTS", "").split(",") if h.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_DEFAULT_HOSTS + _extra_hosts)
 jobs = JobManager(cfg.data_dir / "jobs.jsonl")
 _services: dict[str, BigBoss] = {}
 
 Mode = Literal["observed", "synthetic"]
+
+# Ids that become path components (model versions, experiments, reports). Restricting the character set blocks
+# path traversal on every OS, including backslash separators on Windows.
+_SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+
+
+def _safe_id(value: str) -> str:
+    if not _SAFE_ID.fullmatch(value) or ".." in value:
+        raise HTTPException(400, "bad id")
+    return value
 
 
 def svc(mode: str) -> BigBoss:
@@ -74,7 +92,19 @@ def health():
 @app.get("/api/config")
 def config_view():
     safe = {k: v for k, v in cfg.raw.items() if k not in ("paths",)}
-    return _clean(safe)
+    return _clean(_redact(safe))
+
+
+_SECRET_KEY = re.compile(r"(api_?key|token|secret|password|passwd|credential)", re.I)
+
+
+def _redact(node):
+    """Mask secret-looking values in case someone puts credentials in configs/local.toml instead of the environment."""
+    if isinstance(node, dict):
+        return {k: ("***" if _SECRET_KEY.search(str(k)) and v not in (None, "") else _redact(v)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_redact(v) for v in node]
+    return node
 
 
 # ---------------- data ----------------
@@ -244,8 +274,7 @@ def backtests(mode: Mode = "observed"):
 
 @app.get("/api/backtests/{exp_id}")
 def backtest(exp_id: str):
-    if "/" in exp_id or ".." in exp_id:
-        raise HTTPException(400, "bad id")
+    _safe_id(exp_id)
     try:
         return load_experiment(cfg, exp_id)
     except FileNotFoundError:
@@ -264,11 +293,13 @@ class PromoteReq(BaseModel):
 
 @app.post("/api/models/{vid}/promote")
 def promote(vid: str, req: PromoteReq):
+    _safe_id(vid)
     return _clean(svc(req.mode).registry.promote(vid, req.force_reason))
 
 
 @app.get("/api/models/{vid}/challenge")
 def challenge(vid: str, mode: Mode = "observed"):
+    _safe_id(vid)
     return _clean(svc(mode).registry.challenge(vid))
 
 
@@ -303,8 +334,7 @@ def agent_reports(mode: Mode = "observed"):
 
 @app.get("/api/agents/reports/{rid}")
 def agent_report(rid: str, mode: Mode = "observed"):
-    if "/" in rid or ".." in rid:
-        raise HTTPException(400, "bad id")
+    _safe_id(rid)
     p = cfg.data_dir / "reports" / mode / f"{rid}.json"
     if not p.exists():
         raise HTTPException(404, "report not found")
@@ -375,9 +405,16 @@ def paper_audit(aid: str, mode: Mode = "observed"):
     return svc(mode).broker.audit_log(aid)
 
 
+class RebalanceTrade(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=40)
+    side: Literal["BUY", "SELL"]
+    notional: float = Field(..., ge=0)
+    strategy: str = Field("bigboss_rebalance", max_length=80)
+
+
 class RebalanceReq(BaseModel):
     mode: Mode = "observed"
-    trades: list[dict]
+    trades: list[RebalanceTrade] = Field(..., max_length=500)
     confirm: bool = False
 
 
@@ -388,15 +425,15 @@ def paper_rebalance(aid: str, req: RebalanceReq):
         raise HTTPException(400, "confirm must be true - the user must explicitly approve these simulated trades")
     bb = svc(req.mode)
     results = []
-    for t in sorted(req.trades, key=lambda t: t["side"] != "SELL"):  # sells first to free cash
-        px = bb.store.prices([t["symbol"]])
+    for t in sorted(req.trades, key=lambda t: t.side != "SELL"):  # sells first to free cash
+        px = bb.store.prices([t.symbol])
         if px.empty:
-            results.append({"symbol": t["symbol"], "status": "REJECTED", "reason": "no price"})
+            results.append({"symbol": t.symbol, "status": "REJECTED", "reason": "no price"})
             continue
-        qty = round(float(t["notional"]) / float(px["close"].iloc[-1]), 4)
+        qty = round(t.notional / float(px["close"].iloc[-1]), 4)
         if qty <= 0:
             continue
-        results.append(bb.broker.submit(aid, OrderRequest(t["symbol"], t["side"], qty, strategy=t.get("strategy", "bigboss_rebalance"))))
+        results.append(bb.broker.submit(aid, OrderRequest(t.symbol, t.side, qty, strategy=t.strategy)))
     return _clean({"results": results, "simulated": True})
 
 

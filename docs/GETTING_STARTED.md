@@ -49,6 +49,12 @@ Open http://127.0.0.1:8000 and select Synthetic in the dashboard. Training and
 backtesting can take time. Synthetic data has its own store; these commands
 do not fetch live prices or place real orders.
 
+The API has no login, so `bigboss serve` binds to 127.0.0.1 and only answers
+requests addressed to `localhost` or `127.0.0.1`. If you deliberately serve it
+on another address with `--host`, anyone who can reach that address can use the
+API; set `BIGBOSS_ALLOWED_HOSTS` (comma-separated hostnames) to limit which
+Host headers it accepts.
+
 A model may fail a promotion gate or return insufficient evidence. Read the
 reported gates rather than treating the existence of a model version as
 approval to use it.

@@ -231,8 +231,15 @@ def cmd_schedule(args):
 
 
 def cmd_serve(args):
+    import os
+
     import uvicorn
 
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        # The API has no authentication: anyone who can reach this address can use it.
+        print(f"WARNING: serving on {args.host} exposes the unauthenticated BigBoss API to your network.", file=sys.stderr)
+        if not os.environ.get("BIGBOSS_ALLOWED_HOSTS"):
+            os.environ["BIGBOSS_ALLOWED_HOSTS"] = "*" if args.host in ("0.0.0.0", "::") else args.host
     uvicorn.run("bigboss.api.app:app", host=args.host, port=args.port, reload=False)
 
 
