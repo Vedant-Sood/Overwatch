@@ -1,5 +1,11 @@
 # Experiment log: results, negative results, failed approaches
 
+> **Note (2026-11-08): the data layer was rebuilt.** The original `bigboss/data/` package that produced every
+> experiment below was never committed and was later lost. It was re-implemented from the documented behaviour and
+> the test suite, which passes. Treat the numbers here as records of the original runs: re-running an experiment uses
+> the rebuilt providers and adjustments and can give somewhat different results. The synthetic market of Part 2 in
+> particular was regenerated with a new (documented) process, so its exact figures will not reproduce.
+
 Experiments reported:
 
 1. **Part 1 - real cross-asset proxies** (FRED, keyless), 1992-2021 out of sample.
